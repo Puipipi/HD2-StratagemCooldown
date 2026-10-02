@@ -56,6 +56,29 @@ python -B tools/analyze_vehicle_cooldown_log.py
 它输出最后一次会话经历了哪些阶段与结论；健康会话应当是
 `installed → gate → vehicle records appeared → cooldown applied → heartbeat`。
 
+## 安装状态 / Install state
+
+管理器里本模组按其 manifest GUID 记账，因此本次修复是把**已有那条库记录原地升级**，
+而不是再导入一份（同 GUID 的第二份会被当成重复项）：
+
+- 库目录沿用 `%LOCALAPPDATA%\hd2arsenal\mods\HD2-VehicleCooldown-1.5.1-fixed_AR674323`
+  （目录名不改，管理器按 GUID 解析）；
+- 目录内已是 1.6.0 的正式信封包，`Addon\9ba626afa44a3aa3.patch_0` 的正文与
+  `src/vehicle_cooldown.lua` **逐字节一致**（已校验）；
+- 记录里的 `contentHash` 已更新、`deployed=false`（游戏层里还是 1.5.1 的旧层）；
+- 旧库目录与 `hd2a_data.json` 各自留了备份，见 `docs/root-cause-2026-10-03-*.md`。
+
+**剩下一步是你在 Arsenal 里按“部署”**（先关游戏）。全过程只动文件，没有写游戏目录，
+也没有自动点击你的界面。
+
+In the manager the mod is keyed by its manifest GUID, so the fix is an in-place
+upgrade of the existing library entry (a second entry with the same GUID would
+be a duplicate): the folder keeps its name, its payload is now 1.6.0 and is
+byte-identical to `src/vehicle_cooldown.lua`, the record's `contentHash` is
+updated and it is marked as needing deployment. The previous folder and
+`hd2a_data.json` are backed up. Press **Deploy** in Arsenal (game closed) to
+write the new layer; no game file was touched by the import itself.
+
 ## 打包
 
 ```powershell

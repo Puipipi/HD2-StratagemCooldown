@@ -63,6 +63,26 @@ before any write, read-back verification, rollback and stand-down on a failed
 write, watch loop that re-applies when the engine resets the field, empty target
 sets never cached.
 
+## Install state (this machine) / 本机安装状态
+
+The manager keeps one entry for this mod, keyed by the manifest GUID
+`e5a9c3d5-7d02-4f38-b956-1c2d3e4f5a6b`. A second folder/entry with the same GUID
+would be a duplicate, so the fix was delivered as an **in-place upgrade of that
+existing library entry** instead of a second import:
+
+| Item | Value |
+| --- | --- |
+| Library folder | `%LOCALAPPDATA%\hd2arsenal\mods\HD2-VehicleCooldown-1.5.1-fixed_AR674323` (name kept - the manager resolves it by GUID) |
+| Payload now | 1.6.0, `Addon\9ba626afa44a3aa3.patch_0` sha256 `97b99181adcc53d4...`, byte-identical to `src/vehicle_cooldown.lua` (verified) |
+| Record | `contentHash` updated, `deployed=false` (the game layer still holds the 1.5.1 build), `enabled=true` |
+| Backups | the previous library folder under `outputs/archive/other/vehiclecooldown/arsenal-library-backup-*`, plus `hd2a_data.json.bak-before-vc160-<stamp>` |
+| Left to do | press **Deploy** in Arsenal with the game closed - that writes the new layer; the runtime log then decides |
+
+This was a file-level delivery: no window/input automation, and nothing was
+written to the game directory or to a deployed layer. The envelope was produced
+by the official packer (0x11 magic, `-- HD2-Addon:` header, same GUID), i.e. the
+format Arsenal itself imports.
+
 ## Verification status / 验证状态
 
 * Offline: 20 sandbox checks pass (`python -m unittest discover -s tests -v`),
