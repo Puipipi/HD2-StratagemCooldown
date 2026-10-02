@@ -1,0 +1,21 @@
+# 生成物、运行期产物与第三方封装工具不入库；源码、测试与证据文档入库。
+# 规则顺序有意义：后面的 ! 例外覆盖前面的排除。
+__pycache__/
+*.pyc
+*.log
+*.log.hb
+*.dmp
+*.tmp
+*.bak
+*.bak-*
+
+# 安装包：只保留 dist/ 下的发布 ZIP（本仓库的交付物），其余压缩包排除
+*.zip
+!dist/*.zip
+
+# 外部封装工具由使用者按 THIRD_PARTY_NOTICES.md 另行提供
+work/standalone/vendor/
+
+# 原始日志、崩溃转储与一次性抓取物不对公网发布
+research/private/
+outputs/
