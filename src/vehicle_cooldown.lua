@@ -111,10 +111,15 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.3',status='starting',errors=0}
+local M={version='1.9.4',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
+-- Injected by the build: ROLE is 'core' (patches) or 'provider' (only records
+-- the player's choice for one manager block, then stays dormant).
+local ROLE='core'
+local MARKER=nil
+local MARKER_VALUE=nil
 local BAKED=nil
 rawset(_G,KEY,M)
 
@@ -175,13 +180,16 @@ local function conf()
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
         for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
-            if v then d[k]=(v=='yes' or v=='true' or v=='on') end
+            if v then
+                d[k]=(v=='yes' or v=='true' or v=='on')
+                d.explicit=d.explicit or {} d.explicit[k]=true
+            end
         end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
-        if v then d.blue_scope=v end
+        if v then d.blue_scope=v d.explicit=d.explicit or {} d.explicit.blue_scope=true end
         for _,k in ipairs({'percent','min_cooldown','uses_add','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
-            if v then d[k]=tonumber(v) end
+            if v then d[k]=tonumber(v) d.explicit=d.explicit or {} d.explicit[k]=true end
         end
     end
     return d
@@ -547,6 +555,91 @@ local function target_bits_for(orig)
     if want<1 then want=1 elseif want>7200 then want=7200 end
     return f32_bits(want),want
 end
+-- ---------------------------------------------------------------------------
+-- 1.9.4 manager blocks
+--   red / blue / green / charges: a PROVIDER addon writes opt_<axis>.txt and
+--   stays dormant. The CORE (shipped with the cooldown block) merges those
+--   markers, so five independent groups can be ticked at once without two
+--   addons fighting over one field. Uncommented config.txt keys still win.
+-- ---------------------------------------------------------------------------
+local OPT_DIR=HOME..'VehicleCooldown/'
+
+if ROLE=='provider' then
+    local f=io.open(OPT_DIR..tostring(MARKER)..'.txt','w')
+    if f then
+        f:write(tostring(MARKER_VALUE)..'\n')
+        f:close()
+        M.status='manager option recorded: '..tostring(MARKER)..'='..tostring(MARKER_VALUE)
+        log(M.status..' (dormant; the cooldown block applies it)')
+    else
+        M.status='manager option could not be recorded: '..tostring(MARKER)
+        log(M.status)
+    end
+    return M
+end
+
+local function apply_marker(name,value)
+    if not value or value=='' then return end
+    local ex=cfg.explicit or {}
+    if name=='opt_red' then
+        if ex.red or ex.orbital or ex.eagle then return end
+        if value=='off' then cfg.red=false
+        elseif value=='orbital' then cfg.red=true cfg.orbital=true cfg.eagle=false
+        elseif value=='eagle' then cfg.red=true cfg.orbital=false cfg.eagle=true
+        elseif value=='both' then cfg.red=true cfg.orbital=true cfg.eagle=true end
+    elseif name=='opt_blue' then
+        if ex.blue or ex.blue_scope then return end
+        if value=='off' then cfg.blue=false
+        else
+            cfg.blue=true
+            if value=='vehicles' or value=='mechs' or value=='both' or value=='all' then
+                cfg.blue_scope=value
+            end
+        end
+    elseif name=='opt_green' then
+        if ex.green then return end
+        cfg.green=(value=='on' or value=='yes' or value=='true')
+    elseif name=='opt_uses' then
+        if ex.uses_add or ex.uses_unlimited then return end
+        if value=='unlimited' then
+            cfg.uses_unlimited=true cfg.uses_add=0
+        else
+            cfg.uses_unlimited=false
+            cfg.uses_add=math.floor(tonumber(value) or 0)
+        end
+    end
+    cfg.markers_read=(cfg.markers_read or '')..name..'='..value..' '
+end
+
+local function read_markers(now)
+    if cfg.markers_done then return true end
+    local found=0
+    for _,name in ipairs({'opt_red','opt_blue','opt_green','opt_uses'}) do
+        local f=io.open(OPT_DIR..name..'.txt','r')
+        if f then
+            local v=f:read('*l')
+            f:close()
+            if v then
+                v=v:gsub('%s+$','')
+                if v~='' then found=found+1 apply_marker(name,v) end
+            end
+        end
+    end
+    if found>0 then
+        cfg.markers_done=true
+        log('manager blocks: '..tostring(cfg.markers_read or '')..
+            '| effective: '..string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
+                tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),tostring(cfg.blue),
+                tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.uses_add),
+                tostring(cfg.uses_unlimited)))
+    elseif now>5 then
+        -- no provider blocks deployed: the baked profile / config file stand alone
+        cfg.markers_done=true
+        log('manager blocks: none deployed (single-addon mode)')
+    end
+    return found>0
+end
+
 local born=os.clock()
 local cd=make_feature('cooldown')
 local frames=0
@@ -854,6 +947,9 @@ local function tick_cooldown()
     end
     local now=os.clock()
     local up=now-born
+    -- the manager blocks (red/blue/green/charges) are recorded by their own tiny
+    -- addons; pick them up before any scope decision is made
+    pcall(read_markers,up)
     if up<(cfg.uptime_s or 0) then
         local ph='uptime '..math.floor(up)..'s'
         if M.phase~=ph then M.phase=ph end
@@ -908,6 +1004,7 @@ local function tick_cooldown()
             if ok then
                 cd.state='watch'; cd.last_watch=now
                 log('cooldown applied to '..target_summary())
+            pcall(M.refresh_mode)
                 pcall(probe_copies)
             else
                 -- restore everything we touched this pass, then stand down
@@ -1034,11 +1131,16 @@ M.cd=cd
 M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
 M.scan_ids=SCAN_IDS
-M.mode=string.format('percent=%s min_cooldown=%s uses_add=%s uses_unlimited=%s red=%s(orbital=%s,eagle=%s) '..
-    'blue=%s(%s) green=%s missions=%s',
-    tostring(cfg.percent),tostring(cfg.min_cooldown),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
-    tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
-    tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions))
+local function mode_string()
+    return string.format('percent=%s min_cooldown=%s uses_add=%s uses_unlimited=%s red=%s(orbital=%s,eagle=%s) '..
+        'blue=%s(%s) green=%s missions=%s blocks=%s',
+        tostring(cfg.percent),tostring(cfg.min_cooldown),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
+        tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
+        tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions),
+        tostring(cfg.markers_read or '-'))
+end
+M.mode=mode_string()
+M.refresh_mode=function() M.mode=mode_string() return M.mode end
 log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stable gate %ss%s',
     M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),
     BAKED and (' [profile: '..tostring(BAKED.profile or 'manager option')..']') or ' [profile: none]'))
