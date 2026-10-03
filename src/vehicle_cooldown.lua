@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.2.1',status='starting',errors=0}
+local M={version='2.2.2',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -872,9 +872,13 @@ do
     local base_uses_target=uses_target
     uses_target=function(orig,kind)
         if kind=='eagle' then
-            if cfg.eagle_uses_unlimited==true then
-                if type(orig)~='number' or orig<0 then return nil end
-                return -1
+            -- 2.2.2: -1 on an EAGLE record means "charges spent, waiting for the
+            -- rearm", not "unlimited" (that sentinel is only used by vehicles).
+            -- Writing it made the Eagle stratagems show up as unavailable, so the
+            -- Eagle family is never given -1 - its uptime comes from EAGLE. REARM.
+            if cfg.eagle_uses_unlimited==true or
+               ((tonumber(cfg.eagle_uses_add) or 0)<=0 and cfg.uses_unlimited==true) then
+                return nil
             end
             local add=math.floor(tonumber(cfg.eagle_uses_add) or 0)
             if add>0 then
