@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.2.0',status='starting',errors=0}
+local M={version='2.2.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -655,13 +655,22 @@ end
 local GROUPS={ {'red','红战备'}, {'blue','蓝战备'}, {'green','绿战备'},
                {'cooldown','冷却时间'}, {'uses','次数增加'}, {'eagle_uses','飞鹰次数'} }
 
+-- 2.2.1: anchor on the option record. Searching for the bare block name also
+-- matched the same words inside a description, which truncated the segment to a
+-- few characters and silently dropped the block (次数增加 / 飞鹰次数).
+local function name_at(text,label,from)
+    local a=text:find('"name": "'..label,from or 1,true)
+    if a then return a end
+    return text:find('"name":"'..label,from or 1,true)
+end
+
 local function group_segment(text,label,all_labels)
-    local i=text:find(label,1,true)
+    local i=name_at(text,label)
     if not i then return nil end
     local stop=math.min(#text,i+6000)
     for _,l in ipairs(all_labels) do
         if l~=label then
-            local j=text:find(l,i+#label,true)
+            local j=name_at(text,l,i+8)
             if j and j<stop then stop=j end
         end
     end
