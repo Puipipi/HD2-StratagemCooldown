@@ -123,36 +123,90 @@ class TestBlueScope(unittest.TestCase):
         self.helper('all', {1: 390.0, 105: 240.0, 27: 210.0, 56: 240.0, 73: 240.0, 33: 90.0})
 
 
+class TestCooldownPresets(unittest.TestCase):
+    """1.9.1: the reduction choice is one of three presets."""
+
+    def test_100_leaves_every_cooldown_alone(self):
+        box = Sandbox(SRC, records=WORLD, config={'percent': 100, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            for rid, want in ((1, 780.0), (18, 15.0), (107, 300.0), (49, 150.0)):
+                self.assertAlmostEqual(box.mem.cooldown(rid), want, places=3)
+        finally:
+            box.cleanup()
+
+    def test_80_takes_a_fifth_off(self):
+        box = Sandbox(SRC, records=WORLD, config={'percent': 80, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertAlmostEqual(box.mem.cooldown(1), 624.0, places=3)     # 780 * 0.8
+            self.assertAlmostEqual(box.mem.cooldown(107), 240.0, places=3)   # 300 * 0.8
+            self.assertAlmostEqual(box.mem.cooldown(49), 120.0, places=3)    # 150 * 0.8
+        finally:
+            box.cleanup()
+
+    def test_50_halves(self):
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)
+        finally:
+            box.cleanup()
+
+    def test_an_unlisted_value_is_snapped_to_the_nearest_preset(self):
+        box = Sandbox(SRC, records=WORLD, config={'percent': 60, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertTrue(box.find('not one of 100/80/50'))
+            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)     # 60 -> 50
+        finally:
+            box.cleanup()
+
+
 class TestCharges(unittest.TestCase):
-    def test_uses_percent_doubles_finite_counts_and_leaves_unlimited(self):
+    """1.9.1: +1/+2/+3 charges, or remove the limit entirely."""
+
+    def test_uses_add_raises_finite_counts_only(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'uses_percent': 200, 'uptime_s': 5, 'stable_s': 1})
+                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertEqual(box.mem.uses(18), 4)     # eagle airstrike 2 -> 4
-            self.assertEqual(box.mem.uses(107), 6)    # orbital laser 3 -> 6
-            self.assertEqual(box.mem.uses(27), 6)     # mech 3 -> 6
+            self.assertEqual(box.mem.uses(107), 5)    # orbital laser 3 -> 5
+            self.assertEqual(box.mem.uses(27), 5)     # mech 3 -> 5
+            self.assertEqual(box.mem.uses(69), 3)     # reward sentry 1 -> 3
             self.assertEqual(box.mem.uses(1), -1)     # tank unlimited stays -1
             self.assertEqual(box.mem.uses(49), -1)    # rearm unlimited stays -1
         finally:
             box.cleanup()
 
-    def test_uses_fixed_sets_a_count_for_limited_stratagems_only(self):
+    def test_uses_add_one_and_three(self):
+        for add, offset in ((1, 1), (3, 3)):
+            box = Sandbox(SRC, records=WORLD,
+                          config={'uses_add': add, 'uptime_s': 5, 'stable_s': 1})
+            try:
+                run(box)
+                self.assertEqual(box.mem.uses(18), 2 + offset)
+                self.assertEqual(box.mem.uses(107), 3 + offset)
+            finally:
+                box.cleanup()
+
+    def test_uses_unlimited_removes_the_limit(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'uses_fixed': 5, 'uptime_s': 5, 'stable_s': 1})
+                      config={'uses_unlimited': 'yes', 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
-            self.assertEqual(box.mem.uses(18), 5)
-            self.assertEqual(box.mem.uses(107), 5)
-            self.assertEqual(box.mem.uses(69), 5)
-            self.assertEqual(box.mem.uses(1), -1)
-            self.assertEqual(box.mem.uses(56), -1)
+            self.assertEqual(box.mem.uses(18), -1)    # eagle 2 -> unlimited
+            self.assertEqual(box.mem.uses(107), -1)   # orbital laser 3 -> unlimited
+            self.assertEqual(box.mem.uses(27), -1)    # mech 3 -> unlimited
+            self.assertEqual(box.mem.uses(1), -1)     # already unlimited
         finally:
             box.cleanup()
 
     def test_charges_are_rolled_back_when_a_write_fails(self):
         box = Sandbox(SRC, records=WORLD, fail_writes=True,
-                      config={'uses_percent': 200, 'uptime_s': 5, 'stable_s': 1})
+                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: 'ABORTED' in box.log_text(), max_seconds=60.0))

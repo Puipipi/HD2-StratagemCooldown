@@ -254,16 +254,6 @@ class TestPercentageMode(unittest.TestCase):
         finally:
             box.cleanup()
 
-    def test_percent_zero_falls_back_to_the_fixed_target(self):
-        box = Sandbox(SRC, config={'percent': 0, 'cooldown_s': 300, 'uptime_s': 5, 'stable_s': 1})
-        try:
-            box.load()
-            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
-            self.assertAlmostEqual(box.mem.cooldown(1), 300.0, places=3)
-            self.assertAlmostEqual(box.mem.cooldown(50), 300.0, places=3)
-        finally:
-            box.cleanup()
-
 
 class TestOverhead(unittest.TestCase):
     """1.7.3: keep the measured per-session cost tiny and bounded."""
@@ -333,16 +323,6 @@ class TestWriterStateMachine(unittest.TestCase):
             self.assertIn('uptime gate passed', box.log_text())
             self.assertAlmostEqual(float(box.field('uptime_s')), 10.0, places=3)
             self.assertAlmostEqual(float(box.field('stable_s')), 2.0, places=3)
-        finally:
-            box.cleanup()
-
-    def test_out_of_range_fixed_target_is_clamped_and_logged(self):
-        # fixed mode (percent=0) with a nonsense target: must clamp, not write 0
-        box = Sandbox(SRC, config={'uptime_s': 10, 'stable_s': 2, 'percent': 0, 'cooldown_s': 0})
-        try:
-            box.load()
-            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
-            self.assertAlmostEqual(box.mem.cooldown(1), 1.0, places=3)   # clamped to 1s floor
         finally:
             box.cleanup()
 

@@ -1,4 +1,4 @@
-# HD2 Stratagem Cooldown 1.9.0 - config surface and the live field findings
+# HD2 Stratagem Cooldown 1.9.1 - config surface and the live field findings
 
 Date: 2026-10-03. Everything below was read out of the **running** game
 (read-only) and then reproduced in the offline sandbox.
@@ -11,10 +11,9 @@ place):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `percent` | 50 | cooldown as a percentage of **each stratagem's own** value (50 = halve; 0 = use `cooldown_s`) |
-| `cooldown_s` | 390 | fixed cooldown, only when `percent=0` |
-| `uses_percent` | 100 | charges/uses percentage (200 = double); only affects finite counts |
-| `uses_fixed` | 0 | fixed charge count, 0 = off (overrides `uses_percent`) |
+| `percent` | 50 | cooldown preset: **100 = unchanged, 80 = 20% shorter, 50 = half**; any other value snaps to the nearest preset and is logged |
+| `uses_add` | 0 | charges: 0 = unchanged, **1 / 2 / 3 = that many more** on every limited stratagem |
+| `uses_unlimited` | no | **yes = remove the charge limit** (finite -> `-1` = unlimited) |
 | `red` | yes | red stratagems (offensive) |
 | `orbital` | yes | `ORBITAL.*` |
 | `eagle` | yes | `EAGLE.*`, including `EAGLE. REARM` |
@@ -42,8 +41,9 @@ place):
 
 ## The charges/uses field: `+0x50` (int32)
 
-`-1` means **unlimited** and the addon never turns that into a limit; finite
-counts are scaled by `uses_percent` or replaced by `uses_fixed`.
+`-1` means **unlimited**. `uses_add` raises a finite count by 1..3; `uses_unlimited`
+removes the limit entirely. A record that is already unlimited is never touched, and a
+limit is never invented where the game has none.
 
 Live values (2026-10-03):
 

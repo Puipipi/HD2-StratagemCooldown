@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.0',status='starting',errors=0}
+local M={version='1.9.1',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -138,7 +138,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,cooldown_s=390,percent=50,uses_percent=100,uses_fixed=0,
+    local d={cooldown=true,percent=50,uses_add=0,uses_unlimited=false,
              stable_s=1,uptime_s=0,probe=false,
              red=true,orbital=true,eagle=true,
              blue=true,blue_scope='all',
@@ -152,10 +152,10 @@ local function conf()
             os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\npercent=50\nuses_percent=100\nuses_fixed=0\n')
+                w:write('cooldown=yes\npercent=50\nuses_add=0\nuses_unlimited=no\n')
                 w:write('red=yes\norbital=yes\neagle=yes\n')
                 w:write('blue=yes\nblue_scope=all\ngreen=yes\nmissions=no\n')
-                w:write('cooldown_s=390\nstable_s=1\nuptime_s=0\nprobe=no\n')
+                w:write('stable_s=1\nuptime_s=0\nprobe=no\n')
                 w:close()
             end
         end)
@@ -166,13 +166,13 @@ local function conf()
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
-        for _,k in ipairs({'red','orbital','eagle','blue','green','missions'}) do
+        for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
             if v then d[k]=(v=='yes' or v=='true' or v=='on') end
         end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
         if v then d.blue_scope=v end
-        for _,k in ipairs({'cooldown_s','percent','uses_percent','uses_fixed','stable_s','uptime_s'}) do
+        for _,k in ipairs({'percent','uses_add','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then d[k]=tonumber(v) end
         end
@@ -410,16 +410,20 @@ local function in_scope(kind)
     return false
 end
 
--- charges: -1 means unlimited and is left alone; a percentage never lowers the
--- count below 1, and uses_fixed overrides the percentage when it is > 0
+-- 1.9.1 charges: +0x50, int32, -1 = unlimited.
+--   uses_add=1|2|3  add that many charges to every limited stratagem
+--   uses_unlimited=yes  remove the limit entirely (finite -> -1)
+-- A record that is already unlimited is never touched (there is nothing to add)
+-- and a limit is never invented where the game has none.
 local function uses_target(orig)
-    if type(orig)~='number' or orig<0 then return nil end
-    local fixed=tonumber(cfg.uses_fixed) or 0
-    if fixed>0 then return fixed end
-    local pct=tonumber(cfg.uses_percent) or 100
-    if pct==100 then return nil end
-    local want=math.floor(orig*pct/100+0.5)
-    if want<1 then want=1 elseif want>99 then want=99 end
+    if type(orig)~='number' then return nil end
+    if orig<0 then return nil end                      -- already unlimited
+    if cfg.uses_unlimited==true then return -1 end
+    local add=math.floor(tonumber(cfg.uses_add) or 0)
+    if add<=0 then return nil end
+    if add>3 then add=3 end
+    local want=orig+add
+    if want>99 then want=99 end
     if want==orig then return nil end
     return want
 end
@@ -506,17 +510,24 @@ if not table_base then
 end
 M.table_base=table_base
 log('table located at load: base='..hex(table_base)..' (single pass)')
--- clamp the configured target: a typo like cooldown_s=0 would otherwise mean
--- "vehicles are always available", which is not what this addon promises
+local function desired_bits() return f32_bits(cfg.cooldown_s or 390) end
+
+-- 1.9.1: the cooldown choice is one of three presets - 100 (unchanged),
+-- 80 (20% shorter) or 50 (half). Anything else is snapped to the nearest preset
+-- and logged, so a typo cannot silently produce a different gameplay setting.
 do
-    local want=tonumber(cfg.cooldown_s) or 390
-    if want<1 then want=1 elseif want>7200 then want=7200 end
-    if want~=cfg.cooldown_s then
-        log(string.format('cooldown_s=%s out of range - using %s',tostring(cfg.cooldown_s),tostring(want)))
+    local allowed={100,80,50}
+    local want=tonumber(cfg.percent) or 50
+    local best=allowed[1]
+    for _,value in ipairs(allowed) do
+        if math.abs(value-want)<math.abs(best-want) then best=value end
     end
-    cfg.cooldown_s=want
+    if want~=best then
+        log(string.format('percent=%s is not one of 100/80/50 - using %s',
+            tostring(cfg.percent),tostring(best)))
+    end
+    cfg.percent=best
 end
-local function desired_bits() return f32_bits(cfg.cooldown_s) end
 
 -- 1.7.2/1.9.0: percent = 50 means "half of THIS stratagem's own cooldown" (the
 -- v2 mod called the same option Default50). percent=0 falls back to the fixed
@@ -524,8 +535,7 @@ local function desired_bits() return f32_bits(cfg.cooldown_s) end
 -- The floor is 1s, not 30s: Eagle entries legitimately sit at 15s.
 local function target_bits_for(orig)
     local pct=tonumber(cfg.percent) or 50
-    local want
-    if pct>0 then want=orig*pct/100 else want=tonumber(cfg.cooldown_s) or 390 end
+    local want=orig*pct/100
     if pct<=100 and want>orig then want=orig end
     if want<1 then want=1 elseif want>7200 then want=7200 end
     return f32_bits(want),want
@@ -999,15 +1009,17 @@ M.cd=cd
 M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
 M.scan_ids=SCAN_IDS
-M.mode=string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s missions=%s',
+M.mode=string.format('percent=%s uses_add=%s uses_unlimited=%s red=%s(orbital=%s,eagle=%s) '..
+    'blue=%s(%s) green=%s missions=%s',
+    tostring(cfg.percent),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
     tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
     tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions))
-log(string.format('v%s installed: all-vehicle cooldown, uptime gate %ss, stable gate %ss, cooldown_s=%s',
-    M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),tostring(cfg.cooldown_s)))
+log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stable gate %ss',
+    M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1)))
 return M
 
 -- [guide:begin]
--- HD2 Stratagem Cooldown 1.9.0 - quick guide / 快速指南
+-- HD2 Stratagem Cooldown 1.9.1 - quick guide / 快速指南
 --
 -- What it does / 作用
 --   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value
@@ -1016,11 +1028,11 @@ return M
 --
 -- Config / 配置
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\StratagemCooldown\config.txt
---     percent=50             cooldown percentage (50 = halve; 0 = use cooldown_s)
---     cooldown_s=390         fixed cooldown, only when percent=0
---     uses_percent=100       charges percentage (100 = unchanged, 200 = double;
---                            only affects stratagems that have a finite count)
---     uses_fixed=0           fixed charge count (0 = off, overrides uses_percent)
+--     percent=50             cooldown: 100 = unchanged, 80 = 20% shorter,
+--                            50 = half (exactly these three)
+--     uses_add=0             charges: 0 = unchanged, 1 / 2 / 3 = that many more
+--                            charges on every limited stratagem
+--     uses_unlimited=no      yes = remove the charge limit entirely (finite -> -1)
 --     red=yes                red stratagems (offensive)
 --     orbital=yes              - ORBITAL. series
 --     eagle=yes                - EAGLE. series incl. EAGLE. REARM
