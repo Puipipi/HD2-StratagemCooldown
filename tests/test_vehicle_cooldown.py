@@ -260,6 +260,40 @@ class TestPercentageMode(unittest.TestCase):
             box.cleanup()
 
 
+class TestOverhead(unittest.TestCase):
+    """1.7.3: keep the measured per-session cost tiny and bounded."""
+
+    def test_sweep_is_bounded_and_documented(self):
+        box = Sandbox(SRC)
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
+            self.assertLessEqual(int(box.field('scan_ids') or 0), 255)
+            self.assertLessEqual(int(box.field('slots') or 0), 256)
+        finally:
+            box.cleanup()
+
+    def test_copy_probe_is_off_by_default(self):
+        box = Sandbox(SRC)
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
+            self.run_probe_off = True
+            self.assertFalse(box.find('copy probe'))
+        finally:
+            box.cleanup()
+
+    def test_copy_probe_still_available_on_request(self):
+        box = Sandbox(SRC, config={'probe': 'yes', 'uptime_s': 5, 'stable_s': 1})
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
+            box.run_for(5.0)
+            self.assertTrue(box.find('copy probe'), box.log_text()[-500:])
+        finally:
+            box.cleanup()
+
+
 class TestWriterStateMachine(unittest.TestCase):
     def test_watch_reapplies_after_an_engine_reset(self):
         box = Sandbox(SRC)

@@ -102,7 +102,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.7.2',status='starting',errors=0}
+local M={version='1.7.3',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -129,7 +129,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,cooldown_s=390,percent=50,stable_s=1,uptime_s=0}
+    local d={cooldown=true,cooldown_s=390,percent=50,stable_s=1,uptime_s=0,probe=false}
     local ok,text=pcall(function()
         local f=io.open(CFG,'r') if not f then return nil end
         local t=f:read('*a') f:close() return t
@@ -148,6 +148,8 @@ local function conf()
     for line in text:gmatch('[^\r\n]+') do
         local v=line:match('^%s*cooldown%s*=%s*(%a+)%s*$')
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
+        v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
+        if v then d.probe=(v=='yes' or v=='true' or v=='on') end
         for _,k in ipairs({'cooldown_s','percent','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then d[k]=tonumber(v) end
@@ -449,7 +451,7 @@ local born=os.clock()
 local cd=make_feature('cooldown')
 local frames=0
 local RE_LOCATE_MAX=5
-local SCAN_IDS=511
+local SCAN_IDS=255
 
 local function target_count()
     local n=0
@@ -635,6 +637,7 @@ local COPY_SPAN=0x1000000        -- +/- 8MB around the table and around the reco
 local function probe_copies()
     if cd.probed then return end
     cd.probed=true
+    if not cfg.probe then return end
     for id,rec in pairs(cd.targets or {}) do
         local vanilla=(cd.vanilla and cd.vanilla[id] and cd.vanilla[id].bits) or rec.cooldown_bits
         local needle=u32_bytes(vanilla)
@@ -771,7 +774,8 @@ local function tick_cooldown()
             end
             return
         end
-        M.phase='observing stability ('..target_count()..' target(s))'
+        local ph='observing stability ('..target_count()..' target(s))'
+        if M.phase~=ph then M.phase=ph end
     elseif cd.state=='watch' then
         if now-(cd.last_watch or 0)<5 then return end
         cd.last_watch=now
@@ -807,7 +811,8 @@ local function tick_cooldown()
             cd.state='observe'; cd.targets=nil; cd.stable_since=nil; cd.written={}
             log('table rebuilt - back to observe')
         else
-            M.phase='watch ('..target_count()..' target(s))'
+            local ph='watch ('..target_count()..' target(s))'
+            if M.phase~=ph then M.phase=ph end
             for id,rec in pairs(cd.targets) do
                 if rec.needs_rewrite then
                     rec.needs_rewrite=nil
@@ -875,6 +880,7 @@ M.cd=cd
 -- fields only) can show the effective configuration without a debug session
 M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
+M.scan_ids=SCAN_IDS
 log(string.format('v%s installed: all-vehicle cooldown, uptime gate %ss, stable gate %ss, cooldown_s=%s',
     M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),tostring(cfg.cooldown_s)))
 return M

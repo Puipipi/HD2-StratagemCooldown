@@ -56,6 +56,28 @@ python -B tools/analyze_vehicle_cooldown_log.py
 它输出最后一次会话经历了哪些阶段与结论；健康会话应当是
 `installed → gate → vehicle records appeared → cooldown applied → heartbeat`。
 
+## 性能 / Overhead
+
+在运行中的游戏进程上实测 `ReadProcessMemory` 单价（8B ≈ 4.8µs、176B ≈ 5.6µs、
+1MB ≈ 1.09ms），再按调用次数换算：
+
+- 每帧：**0 次内存读取**（纯 Lua 比较），约 0.002ms；
+- watch 巡检（13 个目标）：每 5 秒 0.15ms；
+- 空闲全表扫描（0..255，仅在没有记录时每 10 秒一次）：1.68ms；
+- 加载时解析 game.dll 镜像：约 78ms（一次性，v2 也这么做）；
+- 复制探针（搜索重复记录结构）：约 0.45 秒 → **1.7.3 起默认关闭**（`probe=yes` 才开）。
+
+稳态约 **0.2ms/s**（含空闲扫描 <0.35ms/s）；同机模组链普遍 0.6–3.8ms/帧
+（60–380ms/s），本模组约占其 0.1–0.5%。复测：
+
+```powershell
+python -B tools/measure_overhead.py
+```
+
+完整方法与逐项对照见 [性能审计](docs/performance-audit-2026-10-03.md)。
+注意模组自报的 `HD2Perf` 数值受 `os.clock()`（Windows 约 15.6ms 分辨率）限制，
+亚毫秒开销会被舍成 0.000，不能用来验收。
+
 ## 安装状态 / Install state
 
 管理器里本模组按其 manifest GUID 记账，因此本次修复是把**已有那条库记录原地升级**，
