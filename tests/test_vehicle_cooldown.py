@@ -25,7 +25,11 @@ CHAIN_RUNTIMES = ('lua51', 'luajit21')
 
 
 def applied(box):
-    return 'applied' in str(box.field('status') or '')
+    """True once a cooldown was applied. Later log lines (heartbeat, probes)
+    overwrite M.status, so the log is the reliable witness."""
+    if 'applied' in str(box.field('status') or ''):
+        return True
+    return 'cooldown applied to' in box.log_text()
 
 
 class TestDormantPaths(unittest.TestCase):
@@ -259,7 +263,7 @@ class TestWriterStateMachine(unittest.TestCase):
             self.assertTrue(os.path.exists(cfg))
             with io.open(cfg, encoding='utf-8') as fh:
                 text = fh.read()
-            self.assertIn('uptime_s=60', text)
+            self.assertIn('uptime_s=0', text)
             self.assertIn('cooldown=yes', text)
         finally:
             box.cleanup()

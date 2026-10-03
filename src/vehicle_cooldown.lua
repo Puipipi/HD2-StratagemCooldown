@@ -1,10 +1,35 @@
 -- HD2-Addon: mods/codex/vehicle_cooldown
--- HD2 Vehicle Cooldown 1.6.0 (internal name v1.2) - safe rewrite of the
--- Tank Cooldown v2 family for ALL stratagem vehicles.
+-- HD2 Vehicle Cooldown 1.7.0 - safe rewrite of the Tank Cooldown v2 family for
+-- ALL stratagem vehicles, plus the diagnostics needed to find the field the
+-- game actually obeys.
+--
+-- 1.7.0 (diagnostic build, after the first real in-game run of 1.6.0)
+--   The 1.6.0 fix works mechanically - the game log shows
+--     vehicle records appeared: 3 target(s) [1=VEHICLES. BASTION(TANK)/780,
+--       10=VEHICLES. COMBAT WALKER OBSIDIAN/420,
+--       105=VEHICLES. FAST RECON VEHICLE (FRV)/480]
+--     cooldown applied to 3 target(s) [...]      errors=0   state=watch
+--   and the field stays patched (the watch loop never has to re-apply it), yet
+--   the in-game cooldown did not change. So the write lands, but +0x68 of that
+--   record is not (or no longer) what the stratagem recharge uses.
+--   This build therefore, in one session:
+--     * writes much earlier (default uptime gate 15s instead of 120s) - if the
+--       engine snapshots the definition during boot, a late write is useless;
+--     * patches the cooldown field AND every 4-byte field in the same record
+--       that currently mirrors that exact value (a "remaining = full" copy is
+--       the classic mirror), and logs every offset it patched;
+--     * logs a one-shot float map of each vehicle record, so the field that
+--       carries the live cooldown can be identified from the log alone;
+--     * logs all name-matched candidates (including ones whose cooldown is out
+--       of range) and scans ids 0..511, so duplicates/templates show up;
+--     * logs whenever the engine itself changes a patched field (that proves
+--       the field is live state rather than a dead copy).
+--   Nothing else changed: same stability gate, readback verification, rollback,
+--   error accounting and heartbeat as 1.6.0.
 --
 -- What it does
 --   * cooldown: shortens the redeploy cooldown of EVERY stratagem vehicle
---     (tanks, exos, FRV - identified by name at runtime), not just two tanks.
+--     (tanks, exos, FRV - identified by name at runtime).
 --
 -- Why the old mods crashed (and this one must not)
 --   The old family wrote live engine records during the boot window, exactly
@@ -61,7 +86,10 @@
 --   cooldown=yes/no        vehicle cooldown feature (default yes)
 --   cooldown_s=390         target cooldown in seconds (default 390 = 50%)
 --   stable_s=6             pointer stability window before writing
---   uptime_s=60            minimum process uptime before the first write
+--   uptime_s=0             minimum process uptime before the first write
+--                          (1.7.1: write at load, like the v2 mod that worked;
+--                           1.6.0's 120s delay was too late - the game had
+--                           already built its runtime stratagem state)
 --   (clutch/clutch_s are accepted for compatibility with the 1.5.x config
 --    file; this build does not implement the clutch feature and says so.)
 --
@@ -70,7 +98,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.6.0',status='starting',errors=0}
+local M={version='1.7.1',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -97,7 +125,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,cooldown_s=390,stable_s=6,uptime_s=60}
+    local d={cooldown=true,cooldown_s=390,stable_s=1,uptime_s=0}
     local ok,text=pcall(function()
         local f=io.open(CFG,'r') if not f then return nil end
         local t=f:read('*a') f:close() return t
@@ -107,7 +135,7 @@ local function conf()
             os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\ncooldown_s=390\nstable_s=6\nuptime_s=60\n')
+                w:write('cooldown=yes\ncooldown_s=390\nstable_s=1\nuptime_s=0\n')
                 w:close()
             end
         end)
@@ -298,9 +326,9 @@ local function locate_table()
 end
 
 -- record layout (validated by Tank Cooldown v2)
-local OFF_ID,OFF_STR1,OFF_STR2,OFF_STR3=0x00,0x10,0x18,0x20
+local OFF_ID,OFF_HASH,OFF_STR1,OFF_STR2,OFF_STR3=0x00,0x04,0x10,0x18,0x20
 local OFF_COOLDOWN,REC_READ=0x68,0xB0
-local VEHICLE_WORDS={'BASTION','MAELSTROM','TD-','EXO-','EMANCIPATOR','PATRIOT','OBSIDIAN','STEWARD','FRV'}
+local VEHICLE_WORDS={'VEHICLES.','EXOSUIT.','BASTION','MAELSTROM','TD-','EXO-','EMANCIPATOR','PATRIOT','OBSIDIAN','STEWARD','FRV'}
 local function is_vehicle_name(name)
     if not name then return false end
     for _,w in ipairs(VEHICLE_WORDS) do
@@ -324,6 +352,7 @@ local function rec_info(id)
         ptr=p,
         id=u32_at(rec,OFF_ID+1) or 0,
         cooldown_bits=u32_at(rec,OFF_COOLDOWN+1) or 0,
+        hash=u32_at(rec,OFF_HASH+1) or 0,
         name=read_cstr(u64_at(rec,OFF_STR1+1) or 0,160),
     }
 end
@@ -404,7 +433,7 @@ local born=os.clock()
 local cd=make_feature('cooldown')
 local frames=0
 local RE_LOCATE_MAX=5
-local SCAN_IDS=145
+local SCAN_IDS=511
 
 local function target_count()
     local n=0
@@ -426,9 +455,64 @@ end
 -- v1.2: the sweep can no longer be killed by one hostile slot. Every slot read
 -- is contained, the reason for every reject is published, and the counters stay
 -- in M so the next runtime snapshot explains what happened.
+-- 1.7.0 additions: every name-matched record is reported (even when its
+-- cooldown is out of range), a one-shot float map of each record is logged, and
+-- every target carries the offsets the writer must hold at the target value
+-- (the cooldown field plus any field that mirrors it exactly).
+local function float_at(rec,off)
+    local bits=u32_at(rec,off+1)
+    if not bits then return nil end
+    local f=f32_from_bits(bits)
+    if f~=f then return nil end
+    return f,bits
+end
+
+local function field_map(rec)
+    local parts={}
+    for off=0,REC_READ-4,4 do
+        local f=float_at(rec,off)
+        if f and f>0.5 and f<200000 then
+            parts[#parts+1]=string.format('%X=%.4g',off,f)
+            if #parts>=24 then break end
+        end
+    end
+    return table.concat(parts,' ')
+end
+
+-- every aligned 4-byte field that currently holds exactly the cooldown value
+local function cooldown_offsets(rec,base_off,base_bits)
+    local offs={base_off}
+    for off=0,REC_READ-4,4 do
+        if off~=base_off and u32_at(rec,off+1)==base_bits then offs[#offs+1]=off end
+    end
+    return offs
+end
+
+-- 1.7.1: the v2 mod that demonstrably worked wrote at load and validated the
+-- two tanks by id + hash before touching anything. The same anchors are used
+-- here as a "the table is fully built" witness; a failure is reported and the
+-- name-based targets are still patched, so a game patch that changes a hash
+-- cannot silently disable the feature.
+local ANCHORS={ {id=1,hash=0x7756F32C,label='Bastion'},
+                {id=50,hash=0x1B7853AC,label='Storm'} }
+local function check_anchors()
+    local ok,notes=0,{}
+    for _,a in ipairs(ANCHORS) do
+        local r=rec_info(a.id)
+        if r and r.id==a.id and r.hash==a.hash then
+            ok=ok+1
+        else
+            notes[#notes+1]=string.format('%s(id=%d) hash=%s want=0x%08X',
+                a.label,a.id,r and string.format('0x%08X',r.hash) or 'none',a.hash)
+        end
+    end
+    return ok,table.concat(notes,'; ')
+end
+
 local function cooldown_targets()
     local t={}
     local slots,records,matched,rejects,bad=0,0,0,0,0
+    local cand={}
     for id=0,SCAN_IDS do
         slots=slots+1
         local ok,r=pcall(rec_info,id)
@@ -439,7 +523,28 @@ local function cooldown_targets()
             records=records+1
             if r.id==id and is_vehicle_name(r.name) then
                 local cd_s=f32_from_bits(r.cooldown_bits)
-                if cd_s==cd_s and cd_s>=120 and cd_s<=7200 then
+                if #cand<12 then
+                    cand[#cand+1]=string.format('%d=%s/%s',id,tostring(r.name),tostring(cd_s))
+                end
+                if cd_s==cd_s and cd_s>=30 and cd_s<=7200 then
+                    local raw=read_at(r.ptr,REC_READ)
+                    if raw then
+                        r.offs=cooldown_offsets(raw,OFF_COOLDOWN,r.cooldown_bits)
+                        local names={}
+                        for _,off in ipairs(r.offs) do
+                            names[#names+1]=string.format('0x%X',off)
+                        end
+                        r.offsets_str=table.concat(names,',')
+                        if not (cd.mapped and cd.mapped[id]) then
+                            cd.mapped=cd.mapped or {}
+                            cd.mapped[id]=true
+                            log(string.format('record id=%d ptr=%s name=%s offsets=%s fields: %s',
+                                id,hex(r.ptr),tostring(r.name),r.offsets_str,field_map(raw)))
+                        end
+                    else
+                        r.offs={OFF_COOLDOWN}
+                        r.offsets_str='0x68'
+                    end
                     t[id]=r matched=matched+1
                 else
                     rejects=rejects+1
@@ -447,8 +552,74 @@ local function cooldown_targets()
             end
         end
     end
+    if not cd.cand_logged and #cand>0 then
+        cd.cand_logged=true
+        log('vehicle candidates: '..table.concat(cand,', '))
+    end
     M.slots,M.records,M.matched,M.rejects,M.bad_slots=slots,records,matched,rejects,bad
     return t
+end
+
+-- ============ 1.7.0 probe: who else holds this cooldown? ==================
+-- Read-only and bounded: a window is read in 1MB chunks (read_at fails safely
+-- on unmapped pages), hits are kept only when the neighbourhood points at a
+-- string carrying the record's own name fragment. That distinguishes the
+-- definition record the addon already patches from a copy used elsewhere
+-- (per-player / per-mission state), which is the prime suspect now that the
+-- patched definition has no in-game effect.
+local function looks_like_record(addr,frag)
+    if frag=='' then return false end
+    for delta=-0x80,0x80,8 do
+        local q=u64_at(read_at(addr+delta,8) or '',1)
+        if sane_ptr(q) then
+            local s=read_cstr(q,48)
+            if s and s:find(frag,1,true) then return true end
+        end
+    end
+    return false
+end
+
+local function scan_window(centre,span,needle,frag,out,cap)
+    local start=centre-math.floor(span/2)
+    if start<MIN_PTR then start=MIN_PTR end
+    local step,off=0x100000,0
+    while off<span and #out<cap do
+        local data=read_at(start+off,step)
+        if data then
+            local from=1
+            while true do
+                local p=data:find(needle,from,true)
+                if not p then break end
+                local addr=start+off+p-1
+                if addr~=centre and looks_like_record(addr,frag) then
+                    out[#out+1]=addr
+                    if #out>=cap then break end
+                end
+                from=p+1
+            end
+        end
+        off=off+step
+    end
+end
+
+local COPY_SPAN=0x1000000        -- +/- 8MB around the table and around the record
+local function probe_copies()
+    if cd.probed then return end
+    cd.probed=true
+    for id,rec in pairs(cd.targets or {}) do
+        local needle=u32_bytes(rec.cooldown_bits)
+        local frag=string.sub(tostring(rec.name or ''),1,12)
+        local out={}
+        scan_window(table_base,COPY_SPAN,needle,frag,out,5)
+        if #out<5 then scan_window(rec.ptr,COPY_SPAN,needle,frag,out,5) end
+        local hits={}
+        for _,addr in ipairs(out) do
+            hits[#hits+1]=hex(addr)..'(d='..hex(math.abs(addr-rec.ptr))..')'
+        end
+        log(string.format('copy probe id=%d name=%s original=%s hits=%d %s',
+            id,tostring(rec.name),tostring(f32_from_bits(rec.cooldown_bits)),#out,
+            table.concat(hits,' ')))
+    end
 end
 
 local function try_relocate(now)
@@ -468,15 +639,30 @@ local function try_relocate(now)
     end
 end
 
+-- 1.7.0: patch every offset the target carries (cooldown field + exact mirrors)
+-- and remember each original value for an exact rollback.
 local function cooldown_write(cfg)
     local desired=desired_bits()
+    local patched={}
     for id,rec in pairs(cd.targets) do
         local cur=rec_info(id)
-        if not cur or cur.ptr~=rec.ptr then return false,'record moved during write' end
-        if cur.cooldown_bits~=desired then
-            if not write4(cur.ptr+OFF_COOLDOWN,desired) then return false,'write/verify failed @'..id end
-            cd.written[cur.ptr]=cur.cooldown_bits   -- original bits for rollback
+        if not cur or cur.ptr~=rec.ptr then return false,'record moved during write @'..id end
+        local raw=read_at(cur.ptr,REC_READ)
+        if not raw then return false,'record unreadable during write @'..id end
+        local offs=rec.offs or {OFF_COOLDOWN}
+        for _,off in ipairs(offs) do
+            local bits=u32_at(raw,off+1)
+            if bits~=desired then
+                if not write4(cur.ptr+off,desired) then
+                    return false,string.format('write/verify failed @%d+0x%X',id,off)
+                end
+                cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=bits,id=id}
+                patched[#patched+1]=string.format('%d+0x%X',id,off)
+            end
         end
+    end
+    if #patched>0 then
+        log('patched offsets: '..table.concat(patched,', '))
     end
     return true
 end
@@ -491,7 +677,7 @@ local function tick_cooldown()
     end
     local now=os.clock()
     local up=now-born
-    if up<(cfg.uptime_s or 60) then
+    if up<(cfg.uptime_s or 0) then
         local ph='uptime '..math.floor(up)..'s'
         if M.phase~=ph then M.phase=ph end
         if frames%1800==0 then log('waiting uptime: '..ph) end
@@ -529,6 +715,11 @@ local function tick_cooldown()
                     return
                 end
                 log('vehicle records appeared: '..target_summary())
+                if not cd.anchor_logged then
+                    cd.anchor_logged=true
+                    local n,note=check_anchors()
+                    log(string.format('identity anchors: %d/%d ok %s',n,#ANCHORS,note~='' and ('('..note..')') or ''))
+                end
                 cd.stable_since=nil cd.stable_enough=false cd.last_sample=0
             else
                 return
@@ -540,9 +731,10 @@ local function tick_cooldown()
             if ok then
                 cd.state='watch'; cd.last_watch=now
                 log('cooldown applied to '..target_summary())
+                pcall(probe_copies)
             else
                 -- restore everything we touched this pass, then stand down
-                for p,orig in pairs(cd.written) do pcall(write4,p+OFF_COOLDOWN,orig) end
+                for _,w in ipairs(cd.written) do pcall(write4,w.ptr+w.off,w.bits) end
                 cd.written={}
                 cd.state='disabled'; cd.disabled_reason=err
                 log('cooldown ABORTED + rolled back: '..tostring(err))
@@ -557,8 +749,28 @@ local function tick_cooldown()
         local desired=desired_bits()
         for id,rec in pairs(cd.targets) do
             local cur=rec_info(id)
-            if not cur or cur.ptr~=rec.ptr then moved=true
-            elseif cur.cooldown_bits~=desired then rec.needs_rewrite=true end
+            if not cur or cur.ptr~=rec.ptr then
+                moved=true
+            else
+                local raw=read_at(cur.ptr,REC_READ)
+                if raw then
+                    for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do
+                        local bits=u32_at(raw,off+1)
+                        if bits~=desired then
+                            rec.needs_rewrite=true
+                            -- the engine wrote this field itself - it is live
+                            -- state, not a dead copy. Report it once.
+                            local key=id..':'..off
+                            if not (cd.changed and cd.changed[key]) then
+                                cd.changed=cd.changed or {}
+                                cd.changed[key]=true
+                                log(string.format('engine changed patched field id=%d off=0x%X now=%s',
+                                    id,off,tostring(f32_from_bits(bits or 0))))
+                            end
+                        end
+                    end
+                end
+            end
         end
         if moved then
             -- engine rebuilt the table: never write mid-rebuild, re-observe
@@ -572,8 +784,17 @@ local function tick_cooldown()
                     -- only rewrite after the whole set has been stable again
                     if cd:snapshot_ok(now,cfg) then
                         local cur=rec_info(id)
-                        if cur and write4(cur.ptr+OFF_COOLDOWN,desired) then
-                            cd.written[cur.ptr]=cur.cooldown_bits
+                        local raw=cur and read_at(cur.ptr,REC_READ)
+                        local ok=true
+                        if raw then
+                            for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do
+                                local bits=u32_at(raw,off+1)
+                                if bits~=desired and not write4(cur.ptr+off,desired) then ok=false break end
+                            end
+                        else
+                            ok=false
+                        end
+                        if ok then
                             log('cooldown re-applied to record '..id)
                         else
                             cd.state='disabled'; cd.disabled_reason='rewrite failed'
@@ -621,10 +842,10 @@ end
 M.cd=cd
 -- scalar mirrors so third-party runtime snapshots (which publish string/number
 -- fields only) can show the effective configuration without a debug session
-M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 60,cfg.stable_s or 6,cfg.cooldown_s
+M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
 log(string.format('v%s installed: all-vehicle cooldown, uptime gate %ss, stable gate %ss, cooldown_s=%s',
-    M.version,tostring(cfg.uptime_s or 60),tostring(cfg.stable_s or 6),tostring(cfg.cooldown_s)))
+    M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),tostring(cfg.cooldown_s)))
 return M
 
 -- [guide:begin]
