@@ -208,6 +208,58 @@ class TestScanRobustness(unittest.TestCase):
             box.cleanup()
 
 
+class TestPercentageMode(unittest.TestCase):
+    """1.7.2: every stratagem is scaled from its OWN vanilla cooldown."""
+
+    def test_each_vehicle_is_halved_from_its_own_value(self):
+        records = [
+            {'id': 1, 'name': 'VEHICLES. BASTION(TANK)', 'cooldown': 780.0},
+            {'id': 105, 'name': 'VEHICLES. FAST RECON VEHICLE (FRV)', 'cooldown': 480.0},
+            {'id': 27, 'name': 'VEHICLES. COMBAT WALKER', 'cooldown': 420.0},          # mech
+            {'id': 50, 'name': 'VEHICLES. STORM(TANK)', 'cooldown': 780.0},
+            {'id': 3, 'name': 'Orbital Precision Strike', 'cooldown': 90.0},
+        ]
+        box = Sandbox(SRC, records=records, config={'percent': 50})
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
+            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(105), 240.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(27), 210.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(50), 390.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(3), 90.0, places=3)   # non-vehicle untouched
+            self.assertTrue(box.find('780->390'))
+            self.assertTrue(box.find('480->240'))
+            self.assertTrue(box.find('420->210'))
+        finally:
+            box.cleanup()
+
+    def test_percentage_is_taken_from_the_vanilla_value_not_the_patched_one(self):
+        """A re-scan must not halve our own target again (780 -> 390 -> 195)."""
+        box = Sandbox(SRC)
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)))
+            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
+            box.rt.execute('HD2VehicleCooldown.cd.next_scan = 0')      # force a re-scan
+            box.rt.execute('HD2VehicleCooldown.cd.targets = nil')
+            box.run_for(15.0)
+            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
+            self.assertFalse(box.find('195'))
+        finally:
+            box.cleanup()
+
+    def test_percent_zero_falls_back_to_the_fixed_target(self):
+        box = Sandbox(SRC, config={'percent': 0, 'cooldown_s': 300, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            box.load()
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
+            self.assertAlmostEqual(box.mem.cooldown(1), 300.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(50), 300.0, places=3)
+        finally:
+            box.cleanup()
+
+
 class TestWriterStateMachine(unittest.TestCase):
     def test_watch_reapplies_after_an_engine_reset(self):
         box = Sandbox(SRC)
@@ -245,13 +297,13 @@ class TestWriterStateMachine(unittest.TestCase):
         finally:
             box.cleanup()
 
-    def test_out_of_range_target_is_clamped_and_logged(self):
-        box = Sandbox(SRC, config={'uptime_s': 10, 'stable_s': 2, 'cooldown_s': 0})
+    def test_out_of_range_fixed_target_is_clamped_and_logged(self):
+        # fixed mode (percent=0) with a nonsense target: must clamp, not write 0
+        box = Sandbox(SRC, config={'uptime_s': 10, 'stable_s': 2, 'percent': 0, 'cooldown_s': 0})
         try:
             box.load()
-            self.assertTrue(box.run_until(lambda: applied(box)))
+            self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
             self.assertAlmostEqual(box.mem.cooldown(1), 30.0, places=3)
-            self.assertTrue(box.find('cooldown_s=0 out of range'))
         finally:
             box.cleanup()
 

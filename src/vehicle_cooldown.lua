@@ -84,7 +84,11 @@
 --
 -- Config: %LOCALAPPDATA%/CowboyBingus/Helldivers2/VehicleCooldown/config.txt
 --   cooldown=yes/no        vehicle cooldown feature (default yes)
---   cooldown_s=390         target cooldown in seconds (default 390 = 50%)
+--   percent=50             cooldown as a percentage of each stratagem's own
+--                          vanilla value (50 = halve the tank's 780 to 390,
+--                          the FRV's 480 to 240, a mech's 420 to 210).
+--                          percent=0 switches to the fixed cooldown_s below.
+--   cooldown_s=390         fixed target in seconds, only used when percent=0
 --   stable_s=6             pointer stability window before writing
 --   uptime_s=0             minimum process uptime before the first write
 --                          (1.7.1: write at load, like the v2 mod that worked;
@@ -98,7 +102,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.7.1',status='starting',errors=0}
+local M={version='1.7.2',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -125,7 +129,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,cooldown_s=390,stable_s=1,uptime_s=0}
+    local d={cooldown=true,cooldown_s=390,percent=50,stable_s=1,uptime_s=0}
     local ok,text=pcall(function()
         local f=io.open(CFG,'r') if not f then return nil end
         local t=f:read('*a') f:close() return t
@@ -135,7 +139,7 @@ local function conf()
             os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\ncooldown_s=390\nstable_s=1\nuptime_s=0\n')
+                w:write('cooldown=yes\npercent=50\ncooldown_s=390\nstable_s=1\nuptime_s=0\n')
                 w:close()
             end
         end)
@@ -144,7 +148,7 @@ local function conf()
     for line in text:gmatch('[^\r\n]+') do
         local v=line:match('^%s*cooldown%s*=%s*(%a+)%s*$')
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
-        for _,k in ipairs({'cooldown_s','stable_s','uptime_s'}) do
+        for _,k in ipairs({'cooldown_s','percent','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then d[k]=tonumber(v) end
         end
@@ -328,7 +332,7 @@ end
 -- record layout (validated by Tank Cooldown v2)
 local OFF_ID,OFF_HASH,OFF_STR1,OFF_STR2,OFF_STR3=0x00,0x04,0x10,0x18,0x20
 local OFF_COOLDOWN,REC_READ=0x68,0xB0
-local VEHICLE_WORDS={'VEHICLES.','EXOSUIT.','BASTION','MAELSTROM','TD-','EXO-','EMANCIPATOR','PATRIOT','OBSIDIAN','STEWARD','FRV'}
+local VEHICLE_WORDS={'VEHICLES.','EXOSUIT.','COMBAT WALKER','BASTION','MAELSTROM','TD-','EXO-','EMANCIPATOR','PATRIOT','OBSIDIAN','STEWARD','FRV'}
 local function is_vehicle_name(name)
     if not name then return false end
     for _,w in ipairs(VEHICLE_WORDS) do
@@ -429,6 +433,18 @@ do
     cfg.cooldown_s=want
 end
 local function desired_bits() return f32_bits(cfg.cooldown_s) end
+
+-- 1.7.2: percent = 50 means "half of THIS stratagem's own cooldown" (the v2 mod
+-- called the same option Default50). percent=0 falls back to the fixed
+-- cooldown_s. A percentage never lengthens a stratagem unless it is above 100.
+local function target_bits_for(orig)
+    local pct=tonumber(cfg.percent) or 50
+    local want
+    if pct>0 then want=orig*pct/100 else want=tonumber(cfg.cooldown_s) or 390 end
+    if pct<=100 and want>orig then want=orig end
+    if want<30 then want=30 elseif want>7200 then want=7200 end
+    return f32_bits(want),want
+end
 local born=os.clock()
 local cd=make_feature('cooldown')
 local frames=0
@@ -446,7 +462,8 @@ local function target_summary(limit)
     for id,rec in pairs(cd.targets or {}) do
         n=n+1
         if n<=(limit or 6) then
-            parts[#parts+1]=id..'='..tostring(rec.name or '?')..'/'..tostring(f32_from_bits(rec.cooldown_bits))
+            parts[#parts+1]=string.format('%d=%s %s->%s',id,tostring(rec.name or '?'),
+                tostring(rec.vanilla or '?'),tostring(rec.target or '?'))
         end
     end
     return n..' target(s) ['..table.concat(parts,', ')..']'
@@ -528,8 +545,16 @@ local function cooldown_targets()
                 end
                 if cd_s==cd_s and cd_s>=30 and cd_s<=7200 then
                     local raw=read_at(r.ptr,REC_READ)
-                    if raw then
-                        r.offs=cooldown_offsets(raw,OFF_COOLDOWN,r.cooldown_bits)
+                    cd.vanilla=cd.vanilla or {}
+                    local vanilla=cd.vanilla[id]
+                    if not vanilla and raw then
+                        -- remember the untouched value (and the fields that
+                        -- mirror it) once, so a later re-scan cannot mistake
+                        -- our own target for the vanilla number
+                        vanilla={bits=r.cooldown_bits,value=cd_s,
+                                 offs=cooldown_offsets(raw,OFF_COOLDOWN,r.cooldown_bits)}
+                        cd.vanilla[id]=vanilla
+                        r.offs=vanilla.offs
                         local names={}
                         for _,off in ipairs(r.offs) do
                             names[#names+1]=string.format('0x%X',off)
@@ -541,10 +566,14 @@ local function cooldown_targets()
                             log(string.format('record id=%d ptr=%s name=%s offsets=%s fields: %s',
                                 id,hex(r.ptr),tostring(r.name),r.offsets_str,field_map(raw)))
                         end
+                    elseif vanilla then
+                        r.offs=vanilla.offs
                     else
                         r.offs={OFF_COOLDOWN}
                         r.offsets_str='0x68'
                     end
+                    r.vanilla=(vanilla and vanilla.value) or cd_s
+                    r.target_bits,r.target=target_bits_for(r.vanilla)
                     t[id]=r matched=matched+1
                 else
                     rejects=rejects+1
@@ -607,7 +636,8 @@ local function probe_copies()
     if cd.probed then return end
     cd.probed=true
     for id,rec in pairs(cd.targets or {}) do
-        local needle=u32_bytes(rec.cooldown_bits)
+        local vanilla=(cd.vanilla and cd.vanilla[id] and cd.vanilla[id].bits) or rec.cooldown_bits
+        local needle=u32_bytes(vanilla)
         local frag=string.sub(tostring(rec.name or ''),1,12)
         local out={}
         scan_window(table_base,COPY_SPAN,needle,frag,out,5)
@@ -617,7 +647,7 @@ local function probe_copies()
             hits[#hits+1]=hex(addr)..'(d='..hex(math.abs(addr-rec.ptr))..')'
         end
         log(string.format('copy probe id=%d name=%s original=%s hits=%d %s',
-            id,tostring(rec.name),tostring(f32_from_bits(rec.cooldown_bits)),#out,
+            id,tostring(rec.name),tostring(f32_from_bits(vanilla)),#out,
             table.concat(hits,' ')))
     end
 end
@@ -642,9 +672,9 @@ end
 -- 1.7.0: patch every offset the target carries (cooldown field + exact mirrors)
 -- and remember each original value for an exact rollback.
 local function cooldown_write(cfg)
-    local desired=desired_bits()
     local patched={}
     for id,rec in pairs(cd.targets) do
+        local desired=rec.target_bits or desired_bits()
         local cur=rec_info(id)
         if not cur or cur.ptr~=rec.ptr then return false,'record moved during write @'..id end
         local raw=read_at(cur.ptr,REC_READ)
@@ -746,8 +776,8 @@ local function tick_cooldown()
         if now-(cd.last_watch or 0)<5 then return end
         cd.last_watch=now
         local moved=false
-        local desired=desired_bits()
         for id,rec in pairs(cd.targets) do
+            local desired=rec.target_bits or desired_bits()
             local cur=rec_info(id)
             if not cur or cur.ptr~=rec.ptr then
                 moved=true
@@ -783,13 +813,14 @@ local function tick_cooldown()
                     rec.needs_rewrite=nil
                     -- only rewrite after the whole set has been stable again
                     if cd:snapshot_ok(now,cfg) then
+                        local want=rec.target_bits or desired_bits()
                         local cur=rec_info(id)
                         local raw=cur and read_at(cur.ptr,REC_READ)
                         local ok=true
                         if raw then
                             for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do
                                 local bits=u32_at(raw,off+1)
-                                if bits~=desired and not write4(cur.ptr+off,desired) then ok=false break end
+                                if bits~=want and not write4(cur.ptr+off,want) then ok=false break end
                             end
                         else
                             ok=false
