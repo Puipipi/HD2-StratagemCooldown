@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.4',status='starting',errors=0}
+local M={version='2.1.5',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -717,7 +717,9 @@ local function apply_manager_ticks()
     local picks={}
     if ticks.red and ticks.red.on and ticks.red.pick then
         local n=ticks.red.pick
-        if n:find('orbital + eagle',1,true) then
+        if n:find('关闭',1,true) or n:find('off',1,true) then
+            cfg.red=false cfg.orbital=false cfg.eagle=false
+        elseif n:find('orbital + eagle',1,true) then
             cfg.red=true cfg.orbital=true cfg.eagle=true picks[#picks+1]='red=both'
         elseif n:find('orbital only',1,true) then
             cfg.red=true cfg.orbital=true picks[#picks+1]='red=orbital'
@@ -727,18 +729,27 @@ local function apply_manager_ticks()
     end
     if ticks.blue and ticks.blue.on and ticks.blue.pick then
         local n=ticks.blue.pick
+        if n:find('关闭',1,true) or n:find('off',1,true) then
+            cfg.blue=false
+        else
         cfg.blue=true
         if n:find('all',1,true) then cfg.blue_scope='all' picks[#picks+1]='blue=all'
         elseif n:find('vehicles + mechs',1,true) then cfg.blue_scope='both' picks[#picks+1]='blue=both'
         elseif n:find('vehicles only',1,true) then cfg.blue_scope='vehicles' picks[#picks+1]='blue=vehicles'
         elseif n:find('mechs only',1,true) then cfg.blue_scope='mechs' picks[#picks+1]='blue=mechs' end
+        end
     end
     if ticks.green and ticks.green.on then
-        cfg.green=true picks[#picks+1]='green=on'
+        local n=ticks.green.pick or ''
+        if not (n:find('关闭',1,true) or n:find('off',1,true)) then
+            cfg.green=true picks[#picks+1]='green=on'
+        end
     end
     if ticks.uses and ticks.uses.on and ticks.uses.pick then
         local n=ticks.uses.pick
-        if n:find('unlimited',1,true) then
+        if n:find('不添加',1,true) or n:find('none',1,true) or n:find('关闭',1,true) then
+            cfg.uses_add=0 cfg.uses_unlimited=false
+        elseif n:find('unlimited',1,true) then
             cfg.uses_unlimited=true picks[#picks+1]='uses=unlimited'
         else
             local k=n:match('%+(%d)')
