@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.7',status='starting',errors=0}
+local M={version='2.1.8',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1078,7 +1078,12 @@ local function cooldown_targets()
                         r.charges_only=true
                         r.target_bits,r.target=nil,nil
                     end
-                    t[id]=r matched=matched+1
+                    if (not inscope) and not r.uses_target then
+                        -- pulled in only because the charges axis is active and this
+                        -- record has no finite charge count: nothing to do at all
+                        r=nil
+                    end
+                    if r then t[id]=r matched=matched+1 end
                 else
                     rejects=rejects+1
                 end
