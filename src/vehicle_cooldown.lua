@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.6',status='starting',errors=0}
+local M={version='2.1.7',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1004,7 +1004,12 @@ local function cooldown_targets()
         elseif r then
             records=records+1
             local kind=classify(r.name)
-            if r.id==id and in_scope(kind) then
+            local inscope=in_scope(kind)
+            -- the charges axis is independent of the colour blocks: when it is
+            -- active it also looks at records with a finite charge count that the
+            -- colour scope would otherwise skip (Eagle, Orbital Laser, mechs)
+            local charges_axis=(tonumber(cfg.uses_add) or 0)>0 or cfg.uses_unlimited==true
+            if r.id==id and (inscope or charges_axis) then
                 local cd_s=f32_from_bits(r.cooldown_bits)
                 local uses=u32_at(r.raw_uses and r.raw_uses or '',1)
                 if #cand<16 then
@@ -1068,6 +1073,11 @@ local function cooldown_targets()
                     end
                     r.uses_vanilla=cd.vanilla_uses[id]
                     r.uses_target=uses_target(r.uses_vanilla)
+                    if r.uses_target and not inscope then
+                        -- only its charges change; leave its cooldown alone
+                        r.charges_only=true
+                        r.target_bits,r.target=nil,nil
+                    end
                     t[id]=r matched=matched+1
                 else
                     rejects=rejects+1
