@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.1',status='starting',errors=0}
+local M={version='1.9.2',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -138,7 +138,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,percent=50,uses_add=0,uses_unlimited=false,
+    local d={cooldown=true,percent=50,min_cooldown=60,uses_add=0,uses_unlimited=false,
              stable_s=1,uptime_s=0,probe=false,
              red=true,orbital=true,eagle=true,
              blue=true,blue_scope='all',
@@ -152,7 +152,7 @@ local function conf()
             os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\npercent=50\nuses_add=0\nuses_unlimited=no\n')
+                w:write('cooldown=yes\npercent=50\nmin_cooldown=60\nuses_add=0\nuses_unlimited=no\n')
                 w:write('red=yes\norbital=yes\neagle=yes\n')
                 w:write('blue=yes\nblue_scope=all\ngreen=yes\nmissions=no\n')
                 w:write('stable_s=1\nuptime_s=0\nprobe=no\n')
@@ -172,7 +172,7 @@ local function conf()
         end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
         if v then d.blue_scope=v end
-        for _,k in ipairs({'percent','uses_add','stable_s','uptime_s'}) do
+        for _,k in ipairs({'percent','min_cooldown','uses_add','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then d[k]=tonumber(v) end
         end
@@ -558,7 +558,8 @@ local function target_summary(limit)
         n=n+1
         if n<=(limit or 6) then
             parts[#parts+1]=string.format('%d=%s[%s] %s->%s%s',id,tostring(rec.name or '?'),
-                tostring(rec.kind or '?'),tostring(rec.vanilla or '?'),tostring(rec.target or '?'),
+                tostring(rec.kind or '?'),tostring(rec.vanilla or '?'),
+                tostring(rec.target or 'kept'),
                 rec.uses_target and string.format(' charges %s->%s',tostring(rec.uses_vanilla),
                     tostring(rec.uses_target)) or '')
         end
@@ -673,7 +674,24 @@ local function cooldown_targets()
                         r.offsets_str='0x68'
                     end
                     r.vanilla=(vanilla and vanilla.value) or cd_s
-                    r.target_bits,r.target=target_bits_for(r.vanilla)
+                    -- 1.9.2: small +0x68 values are not cooldowns. Eagle entries
+                    -- carry their strike/drop delay there (15s), the tank entries
+                    -- the 6s reload - rescaling those changes how fast the strike
+                    -- arrives, which is not what this addon promises. The real
+                    -- Eagle cycle is EAGLE. REARM (150s), which is above the bar.
+                    local mincd=tonumber(cfg.min_cooldown) or 60
+                    if r.vanilla<mincd then
+                        r.target_bits,r.target=nil,nil
+                        cd.low_logged=cd.low_logged or {}
+                        if not cd.low_logged[id] then
+                            cd.low_logged[id]=true
+                            log(string.format(
+                                'id=%d %s cooldown %s < min_cooldown %s - left alone (timing field)',
+                                id,tostring(r.name),tostring(r.vanilla),tostring(mincd)))
+                        end
+                    else
+                        r.target_bits,r.target=target_bits_for(r.vanilla)
+                    end
                     r.kind=kind
                     -- charges: +0x50 int32, -1 = unlimited
                     local cur_uses=raw and i32_at(raw,OFF_USES+1) or nil
@@ -789,7 +807,7 @@ local function cooldown_write(cfg)
         if not cur or cur.ptr~=rec.ptr then return false,'record moved during write @'..id end
         local raw=read_at(cur.ptr,REC_READ)
         if not raw then return false,'record unreadable during write @'..id end
-        local offs=rec.offs or {OFF_COOLDOWN}
+        local offs=(rec.target_bits and rec.offs) or {}
         for _,off in ipairs(offs) do
             local bits=u32_at(raw,off+1)
             if bits~=desired then
@@ -908,7 +926,7 @@ local function tick_cooldown()
                 local raw=read_at(cur.ptr,REC_READ)
                 if raw then
                     local watches={}
-                    for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do watches[#watches+1]=off end
+                    for _,off in ipairs((rec.target_bits and rec.offs) or {}) do watches[#watches+1]=off end
                     if rec.uses_target then watches[#watches+1]=OFF_USES end
                     for _,off in ipairs(watches) do
                         local want=(off==OFF_USES) and rec.uses_target or desired
@@ -948,7 +966,7 @@ local function tick_cooldown()
                         local ok=true
                         if raw then
                             local rewrites={}
-                            for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do rewrites[#rewrites+1]=off end
+                            for _,off in ipairs((rec.target_bits and rec.offs) or {}) do rewrites[#rewrites+1]=off end
                             if rec.uses_target then rewrites[#rewrites+1]=OFF_USES end
                             for _,off in ipairs(rewrites) do
                                 local target=(off==OFF_USES) and rec.uses_target or want
@@ -1009,9 +1027,9 @@ M.cd=cd
 M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
 M.scan_ids=SCAN_IDS
-M.mode=string.format('percent=%s uses_add=%s uses_unlimited=%s red=%s(orbital=%s,eagle=%s) '..
+M.mode=string.format('percent=%s min_cooldown=%s uses_add=%s uses_unlimited=%s red=%s(orbital=%s,eagle=%s) '..
     'blue=%s(%s) green=%s missions=%s',
-    tostring(cfg.percent),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
+    tostring(cfg.percent),tostring(cfg.min_cooldown),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
     tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
     tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions))
 log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stable gate %ss',
@@ -1019,7 +1037,7 @@ log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stabl
 return M
 
 -- [guide:begin]
--- HD2 Stratagem Cooldown 1.9.1 - quick guide / 快速指南
+-- HD2 Stratagem Cooldown 1.9.2 - quick guide / 快速指南
 --
 -- What it does / 作用
 --   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value
@@ -1027,9 +1045,13 @@ return M
 --   按每条战备自己的原值乘以百分比缩短冷却（默认 50%），并可修改有限次数战备的次数。
 --
 -- Config / 配置
---   %LOCALAPPDATA%\CowboyBingus\Helldivers2\StratagemCooldown\config.txt
+--   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
 --     percent=50             cooldown: 100 = unchanged, 80 = 20% shorter,
 --                            50 = half (exactly these three)
+--     min_cooldown=60        only rescale +0x68 values of at least this many
+--                            seconds. Smaller values are strike/drop timings,
+--                            not cooldowns (the Eagle entries' 15s, the tank 6s
+--                            reload), and are left alone. Set 1 to rescale all.
 --     uses_add=0             charges: 0 = unchanged, 1 / 2 / 3 = that many more
 --                            charges on every limited stratagem
 --     uses_unlimited=no      yes = remove the charge limit entirely (finite -> -1)

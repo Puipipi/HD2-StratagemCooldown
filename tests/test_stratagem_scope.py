@@ -45,8 +45,8 @@ class TestColourScope(unittest.TestCase):
                               'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
-            self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)    # eagle
-            self.assertAlmostEqual(box.mem.cooldown(49), 75.0, places=3)   # rearm (real cycle)
+            self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)  # eagle drop delay kept
+            self.assertAlmostEqual(box.mem.cooldown(49), 75.0, places=3)  # rearm = the real cycle
             self.assertAlmostEqual(box.mem.cooldown(107), 150.0, places=3)  # orbital
             self.assertAlmostEqual(box.mem.cooldown(58), 90.0, places=3)
             for rid in (1, 27, 105, 56, 73, 33, 66, 9, 69):
@@ -63,7 +63,7 @@ class TestColourScope(unittest.TestCase):
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(107), 300.0, places=3)   # orbital off
-            self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)      # eagle on
+            self.assertAlmostEqual(box.mem.cooldown(49), 75.0, places=3)      # eagle on -> rearm
         finally:
             box.cleanup()
 
@@ -75,7 +75,7 @@ class TestColourScope(unittest.TestCase):
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(66), 75.0, places=3)
             self.assertAlmostEqual(box.mem.cooldown(9), 90.0, places=3)
-            self.assertAlmostEqual(box.mem.cooldown(69), 22.5, places=3)  # reward sentry 45 -> 22.5
+            self.assertAlmostEqual(box.mem.cooldown(69), 45.0, places=3)  # 45s < min_cooldown, kept
             self.assertAlmostEqual(box.mem.cooldown(1), 780.0, places=3)
         finally:
             box.cleanup()
@@ -150,7 +150,7 @@ class TestCooldownPresets(unittest.TestCase):
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
-            self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)   # timing field kept
         finally:
             box.cleanup()
 
@@ -215,6 +215,39 @@ class TestCharges(unittest.TestCase):
         finally:
             box.cleanup()
 
+
+class TestMinCooldownThreshold(unittest.TestCase):
+    """1.9.2: +0x68 is only a cooldown when it is cooldown-sized."""
+
+    def test_small_values_are_left_alone_and_reported(self):
+        box = Sandbox(SRC, records=WORLD, config={'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)   # eagle drop delay
+            self.assertTrue(box.find('min_cooldown'))
+        finally:
+            box.cleanup()
+
+    def test_min_cooldown_one_rescales_everything(self):
+        box = Sandbox(SRC, records=WORLD,
+                      config={'min_cooldown': 1, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(69), 22.5, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(49), 75.0, places=3)
+        finally:
+            box.cleanup()
+
+    def test_charges_are_still_handled_for_timing_only_records(self):
+        box = Sandbox(SRC, records=WORLD,
+                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
+        try:
+            run(box)
+            self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)   # delay kept
+            self.assertEqual(box.mem.uses(18), 4)                         # charges still +2
+        finally:
+            box.cleanup()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
