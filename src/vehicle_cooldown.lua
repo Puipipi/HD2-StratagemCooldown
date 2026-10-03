@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.4',status='starting',errors=0}
+local M={version='2.2.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -652,7 +652,6 @@ local function manager_db_path()
     return la:gsub('\\','/')..'/hd2arsenal/hd2a_data.json'
 end
 
--- located by their short Chinese names so a bilingual rename cannot break this
 local GROUPS={ {'red','红战备'}, {'blue','蓝战备'}, {'green','绿战备'},
                {'cooldown','冷却时间'}, {'uses','次数增加'} }
 
@@ -685,7 +684,6 @@ local function chosen_sub(seg)
         if not ni then return nil end
         local name=region:sub(ni):match('^"name":%s*"([^"]*)"')
         local on=flag_after(region,ni)
-        -- lower-case so 'Eagle only' and 'eagle only' both match
         if name and on then return name:lower() end
         pos=ni+6
     end
@@ -1405,7 +1403,7 @@ log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stabl
 return M
 
 -- [guide:begin]
--- 战备冷却 / Stratagem Cooldown 2.1.1 - quick guide / 快速指南
+-- 战备冷却 / Stratagem Cooldown 2.2.0 - quick guide / 快速指南
 --
 -- What it does / 作用
 --   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value
