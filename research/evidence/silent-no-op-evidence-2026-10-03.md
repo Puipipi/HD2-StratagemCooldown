@@ -1,6 +1,6 @@
 # Silent no-op evidence / 不生效取证（2026-10-03）
 
-Scope: why HD2 Vehicle Cooldown 1.5.1-fixed (internal v1.1, and v1.0 before it)
+Scope: why 战备冷却 / Stratagem Cooldown 1.5.1-fixed (internal v1.1, and v1.0 before it)
 never applied a cooldown in the real game, and how that was turned into an
 executable reproduction.  Raw player logs stay outside this repository; only
 derived counts and short quoted lines are recorded here.

@@ -1,4 +1,4 @@
-# Import HD2 Vehicle Cooldown into the mod workspace and fix the silent no-op
+# Import 战备冷却 / Stratagem Cooldown into the mod workspace and fix the silent no-op
 
 Date: 2026-10-03. Status: implemented (source + tests + package); no in-game run
 yet.
@@ -29,7 +29,7 @@ yet.
    package GUID) so the fix targets real code, not a workspace copy.
 2. Establish why it never applied anything, from the game's own logs and
    runtime snapshots - not from the previous session's hypothesis.
-3. Import the current source into `mods/vehicle-cooldown/` following the layout
+3. Import the current source into `mods/stratagem-cooldown/` following the layout
    rules, with its own repository and branch.
 4. Fix the root cause(s); keep the reviewed stability/rollback design intact.
 5. Build an offline sandbox that runs the real source against a synthetic

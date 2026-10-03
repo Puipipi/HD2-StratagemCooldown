@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Offline sandbox for HD2 Vehicle Cooldown.
+"""Offline sandbox for 战备冷却 / Stratagem Cooldown.
 
 The addon runs inside the game's LuaJIT with Bingus Shared Loader's FFI.  This
 sandbox reproduces that contract far enough to test the parts that actually

@@ -1,4 +1,4 @@
-# Overhead audit - HD2 Vehicle Cooldown 1.7.3 / 性能开销核对
+# Overhead audit - 战备冷却 / Stratagem Cooldown 1.7.3 / 性能开销核对
 
 Date: 2026-10-03. Method: measure the real cost of the three
 `ReadProcessMemory` shapes this addon uses on the **live game process**

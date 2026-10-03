@@ -41,7 +41,7 @@ VARIANT = dict(
     resource='mods/codex/vehicle_cooldown',      # unchanged: the manager upgrades in place
     guid='e5a9c3d5-7d02-4f38-b956-1c2d3e4f5a6b',
     name='HD2 Stratagem Cooldown',
-    package='HD2-StratagemCooldown',
+    package='StratagemCooldown',
     scope='all stratagem colours (config: red/orbital/eagle, blue scope, green, missions)',
 )
 

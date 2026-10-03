@@ -1,5 +1,5 @@
 -- HD2-Addon: mods/codex/vehicle_cooldown
--- HD2 Vehicle Cooldown v1.1 - safe rewrite of Tank Cooldown v2 for ALL vehicles.
+-- 战备冷却 / Stratagem Cooldown v1.1 - safe rewrite of Tank Cooldown v2 for ALL vehicles.
 --
 -- What it does
 --   * cooldown: shortens the redeploy cooldown of EVERY stratagem vehicle

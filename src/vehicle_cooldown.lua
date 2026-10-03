@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.0',status='starting',errors=0}
+local M={version='2.1.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1403,7 +1403,7 @@ log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stabl
 return M
 
 -- [guide:begin]
--- HD2 Stratagem Cooldown 1.9.2 - quick guide / 快速指南
+-- 战备冷却 / Stratagem Cooldown 2.1.1 - quick guide / 快速指南
 --
 -- What it does / 作用
 --   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Offline checks for HD2 Vehicle Cooldown (src/vehicle_cooldown.lua).
+"""Offline checks for 战备冷却 / Stratagem Cooldown (src/vehicle_cooldown.lua).
 
 Run from the repository root:
 

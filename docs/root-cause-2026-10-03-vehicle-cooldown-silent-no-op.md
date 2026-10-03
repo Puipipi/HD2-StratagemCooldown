@@ -1,4 +1,4 @@
-# Root cause: HD2 Vehicle Cooldown never took effect / 载具冷却模组不生效的根因
+# Root cause: 战备冷却 / Stratagem Cooldown never took effect / 载具冷却模组不生效的根因
 
 Date: 2026-10-03. Scope: the 1.5.1-fixed build (internal v1.1) that was deployed
 in the game layers, the fix shipped as 1.6.0, and the evidence behind both.

@@ -1,4 +1,4 @@
-# HD2 Vehicle Cooldown / 载具冷却
+# 战备冷却 / Stratagem Cooldown / 载具冷却
 
 **1.9.0 候选：一个模组覆盖红/蓝/绿全部战备（含次数修改）；尚未实机验证。**
 **1.9.0 candidate: one addon for red/blue/green stratagems incl. charges. Not yet validated in game.**
