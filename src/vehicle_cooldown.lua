@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.0.0',status='starting',errors=0}
+local M={version='2.1.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -186,6 +186,8 @@ local function conf()
                 d.explicit_vals=d.explicit_vals or {} d.explicit_vals[k]=d[k]
             end
         end
+        v=line:match('^%s*manager_db%s*=%s*(.+)$')
+        if v then d.manager_db=v:gsub('%s+$','') end
         v=line:match('^%s*scan_dir%s*=%s*(.+)$')
         if v then d.scan_dir=v:gsub('%s+$','') end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
@@ -636,6 +638,117 @@ end
 -- refreshed and is ignored - that is what makes the outer checkbox the on/off
 -- switch without an "off" entry inside the submenu.
 local MARKER_TRUST_S=180
+
+-- ---------------------------------------------------------------------------
+-- Design A: the manager UI state is the source of truth. Only the core addon is
+-- deployed (from the cooldown block), the other blocks hold no files at all, so
+-- the core reads Arsenal's own database: each option group carries "enabled" and
+-- each suboption carries "enabled". Unticked = false = that block is off.
+-- ---------------------------------------------------------------------------
+local function manager_db_path()
+    if cfg.manager_db and cfg.manager_db~='' then return cfg.manager_db end
+    local la=os.getenv('LOCALAPPDATA')
+    if not la then return nil end
+    return la:gsub('\\','/')..'/hd2arsenal/hd2a_data.json'
+end
+
+local GROUPS={ {'red','红战备 / Red'}, {'blue','蓝战备 / Blue'}, {'green','绿战备 / Green'},
+               {'cooldown','冷却时间 / Cooldown'}, {'uses','次数增加 / Charges'} }
+
+local function group_segment(text,label,all_labels)
+    local i=text:find(label,1,true)
+    if not i then return nil end
+    local stop=math.min(#text,i+6000)
+    for _,l in ipairs(all_labels) do
+        if l~=label then
+            local j=text:find(l,i+#label,true)
+            if j and j<stop then stop=j end
+        end
+    end
+    return text:sub(i,stop)
+end
+
+local function flag_after(seg,pos)
+    local i=seg:find('"enabled":',pos,true)
+    if not i then return nil end
+    return seg:sub(i+10,i+22):find('true',1,true)~=nil, i
+end
+
+local function chosen_sub(seg)
+    local s0=seg:find('"suboptions"',1,true)
+    if not s0 then return nil end
+    local region=seg:sub(s0)
+    local pos=1
+    while true do
+        local ni=region:find('"name":',pos,true)
+        if not ni then return nil end
+        local name=region:sub(ni):match('^"name":%s*"([^"]*)"')
+        local on=flag_after(region,ni)
+        if name and on then return name end
+        pos=ni+6
+    end
+end
+
+local function apply_manager_ticks()
+    local path=manager_db_path()
+    if not path then return false,'no db path' end
+    local f=io.open(path,'rb')
+    if not f then return false,'db missing' end
+    local size=f:seek('end')
+    f:seek('set',0)
+    if not size or size>16777216 then f:close() return false,'db too large' end
+    local text=f:read('*a')
+    f:close()
+    if not text then return false,'db unreadable' end
+    local labels={}
+    for _,g in ipairs(GROUPS) do labels[#labels+1]=g[2] end
+    local ticks={}
+    for _,g in ipairs(GROUPS) do
+        local seg=group_segment(text,g[2],labels)
+        if seg then
+            local on=flag_after(seg,1)
+            ticks[g[1]]={on=on, pick=chosen_sub(seg)}
+        end
+    end
+    if not (ticks.cooldown and ticks.cooldown.pick) then return false,'groups not found' end
+    cfg.red=false cfg.orbital=false cfg.eagle=false
+    cfg.blue=false cfg.green=false
+    cfg.uses_add=0 cfg.uses_unlimited=false
+    local picks={}
+    if ticks.red and ticks.red.on and ticks.red.pick then
+        local n=ticks.red.pick
+        if n:find('orbital + eagle',1,true) then
+            cfg.red=true cfg.orbital=true cfg.eagle=true picks[#picks+1]='red=both'
+        elseif n:find('orbital only',1,true) then
+            cfg.red=true cfg.orbital=true picks[#picks+1]='red=orbital'
+        elseif n:find('eagle only',1,true) then
+            cfg.red=true cfg.eagle=true picks[#picks+1]='red=eagle'
+        end
+    end
+    if ticks.blue and ticks.blue.on and ticks.blue.pick then
+        local n=ticks.blue.pick
+        cfg.blue=true
+        if n:find('all',1,true) then cfg.blue_scope='all' picks[#picks+1]='blue=all'
+        elseif n:find('vehicles + mechs',1,true) then cfg.blue_scope='both' picks[#picks+1]='blue=both'
+        elseif n:find('vehicles only',1,true) then cfg.blue_scope='vehicles' picks[#picks+1]='blue=vehicles'
+        elseif n:find('mechs only',1,true) then cfg.blue_scope='mechs' picks[#picks+1]='blue=mechs' end
+    end
+    if ticks.green and ticks.green.on then
+        cfg.green=true picks[#picks+1]='green=on'
+    end
+    if ticks.uses and ticks.uses.on and ticks.uses.pick then
+        local n=ticks.uses.pick
+        if n:find('unlimited',1,true) then
+            cfg.uses_unlimited=true picks[#picks+1]='uses=unlimited'
+        else
+            local k=n:match('%+(%d)')
+            if k then cfg.uses_add=tonumber(k) picks[#picks+1]='uses=+'..k end
+        end
+    end
+    local cd=ticks.cooldown.pick:match('(%d+)%%')
+    if cd then cfg.percent=tonumber(cd) picks[#picks+1]='cooldown='..cd..'%' end
+    return true,table.concat(picks,' ')
+end
 local MAX_LAYER_BYTES=1048576
 
 -- Method 1: which blocks did Arsenal actually deploy? Unticked means not
@@ -727,6 +840,22 @@ local function read_markers(now)
         end
     end
     local source='markers'
+    local dbok,dbnote=pcall(apply_manager_ticks)
+    if dbok and dbnote then
+        source='manager DB'
+        cfg.markers_done=true
+        local vals=cfg.explicit_vals or {}
+        for k,v in pairs(vals) do cfg[k]=v end
+        log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
+            tostring(dbnote), next(vals) and 'config.txt overrides applied' or 'none',
+            string.format('percent=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
+                tostring(cfg.percent),tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
+                tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),
+                tostring(cfg.uses_add),tostring(cfg.uses_unlimited))))
+        return true
+    elseif dbnote and dbnote~='db missing' then
+        log('manager DB not used: '..tostring(dbnote))
+    end
     if #fresh==0 then
         -- Method 1: read the deployed layers (works even if no second addon ran)
         local dir=game_dir()
