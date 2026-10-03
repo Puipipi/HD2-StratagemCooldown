@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.5',status='starting',errors=0}
+local M={version='2.0.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -186,6 +186,8 @@ local function conf()
                 d.explicit_vals=d.explicit_vals or {} d.explicit_vals[k]=d[k]
             end
         end
+        v=line:match('^%s*scan_dir%s*=%s*(.+)$')
+        if v then d.scan_dir=v:gsub('%s+$','') end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
         if v then
             d.blue_scope=v
@@ -634,6 +636,72 @@ end
 -- refreshed and is ignored - that is what makes the outer checkbox the on/off
 -- switch without an "off" entry inside the submenu.
 local MARKER_TRUST_S=180
+local MAX_LAYER_BYTES=1048576
+
+-- Method 1: which blocks did Arsenal actually deploy? Unticked means not
+-- deployed, so the signature is simply absent - no stale state to reason about.
+local function game_dir()
+    if cfg.scan_dir and cfg.scan_dir~='' then return cfg.scan_dir end
+    local ok,dir=pcall(function()
+        local buf=ffi.new('char[512]')
+        local n=ffi.C.GetModuleFileNameA(nil,buf,512)
+        if not n or n<=0 then return nil end
+        local path=ffi.string(buf,n)
+        return path:match('^(.*)[\\/][^\\/]*$')
+    end)
+    if ok and dir and dir~='' then return dir end
+    return nil
+end
+
+local function read_layer(path)
+    local f=io.open(path,'rb')
+    if not f then return nil end
+    local size=f:seek('end')
+    if not size or size>MAX_LAYER_BYTES then f:close() return nil end
+    f:seek('set',0)
+    local data=f:read('*a')
+    f:close()
+    if not data then return nil end
+    local name=data:match("local MARKER='([^']+)'")
+    local value=data:match("local MARKER_VALUE='([^']+)'")
+    if not value then
+        local n2,v2=data:match('VCBLOCK%s+([%w_]+)%s*=%s*([%w_]+)')
+        name,value=n2,v2
+    end
+    if name and value and name:sub(1,4)=='opt_' then return name,value end
+    return nil
+end
+
+local function scan_deployed(dir)
+    if not dir then return {} end
+    local found={}
+    local dd=dir..'\\data'
+    local names={}
+    local ok,pipe=pcall(io.popen,'dir /b /o-d "'..dd..'\\9ba*.patch_*" 2>nul')
+    if ok and pipe then
+        for line in pipe:lines() do names[#names+1]=line end
+        pipe:close()
+    end
+    -- also try the flat .patch_N pattern the game uses for its own data dir
+    if #names==0 then
+        local ok2,pipe2=pcall(io.popen,'dir /b /o-d "'..dir..'\\data\\*.patch_*" 2>nul')
+        if ok2 and pipe2 then
+            for line in pipe2:lines() do
+                names[#names+1]=line
+                if #names>=400 then break end
+            end
+            pipe2:close()
+        end
+    end
+    local read=0
+    for _,fn in ipairs(names) do
+        if read<400 then
+            local name,value=read_layer(dd..'\\'..fn)
+            if name then found[name]=value read=read+1 end
+        end
+    end
+    return found,read
+end
 
 local function read_markers(now)
     if cfg.markers_done then return true end
@@ -658,6 +726,23 @@ local function read_markers(now)
             end
         end
     end
+    local source='markers'
+    if #fresh==0 then
+        -- Method 1: read the deployed layers (works even if no second addon ran)
+        local dir=game_dir()
+        local found,count=scan_deployed(dir)
+        local n=0
+        for name,value in pairs(found or {}) do
+            fresh[#fresh+1]=name
+            fresh_names[name]=value
+            n=n+1
+        end
+        if n>0 then
+            source='deployed layers'
+            log(string.format('deploy scan: %s -> %d block(s) found in %d layer file(s)',
+                tostring(dir),n,count or 0))
+        end
+    end
     if #fresh>0 then
         -- start from "every block off" so an unticked block really is off, then
         -- let the deployed blocks switch things on
@@ -669,7 +754,7 @@ local function read_markers(now)
         local vals=cfg.explicit_vals or {}
         for k,v in pairs(vals) do cfg[k]=v end
         cfg.markers_done=true
-        log('manager blocks: '..tostring(cfg.markers_read or '')..'| explicit: '..
+        log('blocks(from '..source..'): '..tostring(cfg.markers_read or '')..'| explicit: '..
             tostring(next(vals) and 'config.txt overrides applied' or 'none')..
             ' | effective: '..string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
                 tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),tostring(cfg.blue),
