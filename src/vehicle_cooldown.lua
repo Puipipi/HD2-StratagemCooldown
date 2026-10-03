@@ -111,7 +111,11 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.2',status='starting',errors=0}
+local M={version='1.9.3',status='starting',errors=0}
+-- BAKED is injected by work/standalone/build_vc.py when a manager option was
+-- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
+-- config.txt still wins, so the manager preset and the file can be combined.
+local BAKED=nil
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -143,6 +147,9 @@ local function conf()
              red=true,orbital=true,eagle=true,
              blue=true,blue_scope='all',
              green=true,missions=false}
+    if type(BAKED)=='table' then
+        for k,v in pairs(BAKED) do d[k]=v end
+    end
     local ok,text=pcall(function()
         local f=io.open(CFG,'r') if not f then return nil end
         local t=f:read('*a') f:close() return t
@@ -1032,8 +1039,9 @@ M.mode=string.format('percent=%s min_cooldown=%s uses_add=%s uses_unlimited=%s r
     tostring(cfg.percent),tostring(cfg.min_cooldown),tostring(cfg.uses_add),tostring(cfg.uses_unlimited),
     tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
     tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions))
-log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stable gate %ss',
-    M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1)))
+log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stable gate %ss%s',
+    M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),
+    BAKED and (' [profile: '..tostring(BAKED.profile or 'manager option')..']') or ' [profile: none]'))
 return M
 
 -- [guide:begin]
@@ -1044,7 +1052,17 @@ return M
 --   (default 50%) and can change how many charges a limited stratagem has.
 --   按每条战备自己的原值乘以百分比缩短冷却（默认 50%），并可修改有限次数战备的次数。
 --
--- Config / 配置
+-- Layering / 两层设置
+--   1) In the mod manager, pick one entry from the "Profile / 方案" group.
+--      It ships as a complete build (all profiles share the same addon GUID, so
+--      exactly one can ever be deployed).
+--      在管理器里从“方案 / Profile”里选一个，方案是完整构建，共用同一个 GUID，
+--      永远只会生效一个。
+--   2) config.txt still wins for any key you leave uncommented - use it to
+--      fine-tune whatever the chosen profile does not set.
+--      config.txt 里“未注释”的键优先级最高，可用来微调。
+--
+-- Config / 配置（键都被注释掉时使用方案里的值）
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
 --     percent=50             cooldown: 100 = unchanged, 80 = 20% shorter,
 --                            50 = half (exactly these three)
