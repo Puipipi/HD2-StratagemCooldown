@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.9.4',status='starting',errors=0}
+local M={version='1.9.5',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -183,13 +183,26 @@ local function conf()
             if v then
                 d[k]=(v=='yes' or v=='true' or v=='on')
                 d.explicit=d.explicit or {} d.explicit[k]=true
+                d.explicit_vals=d.explicit_vals or {} d.explicit_vals[k]=d[k]
             end
         end
         v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
-        if v then d.blue_scope=v d.explicit=d.explicit or {} d.explicit.blue_scope=true end
+        if v then
+            d.blue_scope=v
+            d.explicit=d.explicit or {}
+            d.explicit.blue_scope=true
+            d.explicit_vals=d.explicit_vals or {}
+            d.explicit_vals.blue_scope=v
+        end
         for _,k in ipairs({'percent','min_cooldown','uses_add','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
-            if v then d[k]=tonumber(v) d.explicit=d.explicit or {} d.explicit[k]=true end
+            if v then
+                d[k]=tonumber(v)
+                d.explicit=d.explicit or {}
+                d.explicit[k]=true
+                d.explicit_vals=d.explicit_vals or {}
+                d.explicit_vals[k]=tonumber(v)
+            end
         end
     end
     return d
@@ -392,6 +405,14 @@ end
 local function classify(name)
     if not name then return nil end
     if name:find('COMBAT WALKER',1,true) then return 'mech' end
+    -- green also covers the mine family (minefield, incendiary mines, anti-tank
+    -- mines) and the defensive structures, whichever prefix the game files them
+    -- under - checked before the prefix table so a mine under MISSIONS. or with
+    -- no prefix at all still lands in green
+    if name:find('MINE',1,true) or name:find('TESLA',1,true)
+       or name:find('SHIELD GENERATOR',1,true) or name:find('RELAY',1,true) then
+        return 'green'
+    end
     local p=prefix_of(name)
     if p=='ORBITAL' then return 'orbital' end
     if p=='EAGLE' then return 'eagle' end
@@ -567,7 +588,7 @@ local OPT_DIR=HOME..'VehicleCooldown/'
 if ROLE=='provider' then
     local f=io.open(OPT_DIR..tostring(MARKER)..'.txt','w')
     if f then
-        f:write(tostring(MARKER_VALUE)..'\n')
+        f:write(tostring(MARKER_VALUE)..' '..tostring(os.time())..'\n')
         f:close()
         M.status='manager option recorded: '..tostring(MARKER)..'='..tostring(MARKER_VALUE)
         log(M.status..' (dormant; the cooldown block applies it)')
@@ -578,17 +599,16 @@ if ROLE=='provider' then
     return M
 end
 
+local SESSION_START=os.time()
+
 local function apply_marker(name,value)
     if not value or value=='' then return end
-    local ex=cfg.explicit or {}
     if name=='opt_red' then
-        if ex.red or ex.orbital or ex.eagle then return end
         if value=='off' then cfg.red=false
         elseif value=='orbital' then cfg.red=true cfg.orbital=true cfg.eagle=false
         elseif value=='eagle' then cfg.red=true cfg.orbital=false cfg.eagle=true
         elseif value=='both' then cfg.red=true cfg.orbital=true cfg.eagle=true end
     elseif name=='opt_blue' then
-        if ex.blue or ex.blue_scope then return end
         if value=='off' then cfg.blue=false
         else
             cfg.blue=true
@@ -597,10 +617,8 @@ local function apply_marker(name,value)
             end
         end
     elseif name=='opt_green' then
-        if ex.green then return end
         cfg.green=(value=='on' or value=='yes' or value=='true')
     elseif name=='opt_uses' then
-        if ex.uses_add or ex.uses_unlimited then return end
         if value=='unlimited' then
             cfg.uses_unlimited=true cfg.uses_add=0
         else
@@ -611,9 +629,15 @@ local function apply_marker(name,value)
     cfg.markers_read=(cfg.markers_read or '')..name..'='..value..' '
 end
 
+-- A marker is only trusted if the provider wrote it in THIS session. Unticking
+-- a block means its addon is no longer deployed, so its marker stops being
+-- refreshed and is ignored - that is what makes the outer checkbox the on/off
+-- switch without an "off" entry inside the submenu.
+local MARKER_TRUST_S=180
+
 local function read_markers(now)
     if cfg.markers_done then return true end
-    local found=0
+    local fresh,fresh_names={},{}
     for _,name in ipairs({'opt_red','opt_blue','opt_green','opt_uses'}) do
         local f=io.open(OPT_DIR..name..'.txt','r')
         if f then
@@ -621,23 +645,41 @@ local function read_markers(now)
             f:close()
             if v then
                 v=v:gsub('%s+$','')
-                if v~='' then found=found+1 apply_marker(name,v) end
+                local value,ts=v:match('^(%S+)%s+(%d+)$')
+                if not value then value=v end
+                local age=ts and (SESSION_START-tonumber(ts)) or nil
+                if value and value~='' and age and age<=MARKER_TRUST_S and age>=-MARKER_TRUST_S then
+                    fresh[#fresh+1]=name
+                    fresh_names[name]=value
+                elseif value and value~='' then
+                    log(string.format('manager block %s ignored: marker is stale (%s)',
+                        name,tostring(age and (age..'s old') or 'no timestamp')))
+                end
             end
         end
     end
-    if found>0 then
+    if #fresh>0 then
+        -- start from "every block off" so an unticked block really is off, then
+        -- let the deployed blocks switch things on
+        cfg.red=false cfg.orbital=false cfg.eagle=false
+        cfg.blue=false cfg.green=false
+        cfg.uses_add=0 cfg.uses_unlimited=false
+        for _,name in ipairs(fresh) do apply_marker(name,fresh_names[name]) end
+        -- and finally the keys the player left uncommented in config.txt
+        local vals=cfg.explicit_vals or {}
+        for k,v in pairs(vals) do cfg[k]=v end
         cfg.markers_done=true
-        log('manager blocks: '..tostring(cfg.markers_read or '')..
-            '| effective: '..string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
+        log('manager blocks: '..tostring(cfg.markers_read or '')..'| explicit: '..
+            tostring(next(vals) and 'config.txt overrides applied' or 'none')..
+            ' | effective: '..string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
                 tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),tostring(cfg.blue),
                 tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.uses_add),
                 tostring(cfg.uses_unlimited)))
     elseif now>5 then
-        -- no provider blocks deployed: the baked profile / config file stand alone
         cfg.markers_done=true
         log('manager blocks: none deployed (single-addon mode)')
     end
-    return found>0
+    return #fresh>0
 end
 
 local born=os.clock()
