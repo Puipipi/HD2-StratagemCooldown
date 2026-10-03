@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.8',status='starting',errors=0}
+local M={version='2.1.9',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -178,7 +178,7 @@ local function conf()
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
-        for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited'}) do
+        for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited','eagle_uses_unlimited'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
             if v then
                 d[k]=(v=='yes' or v=='true' or v=='on')
@@ -198,7 +198,7 @@ local function conf()
             d.explicit_vals=d.explicit_vals or {}
             d.explicit_vals.blue_scope=v
         end
-        for _,k in ipairs({'percent','min_cooldown','uses_add','stable_s','uptime_s'}) do
+        for _,k in ipairs({'percent','min_cooldown','uses_add','eagle_uses_add','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then
                 d[k]=tonumber(v)
@@ -653,7 +653,7 @@ local function manager_db_path()
 end
 
 local GROUPS={ {'red','红战备'}, {'blue','蓝战备'}, {'green','绿战备'},
-               {'cooldown','冷却时间'}, {'uses','次数增加'} }
+               {'cooldown','冷却时间'}, {'uses','次数增加'}, {'eagle_uses','飞鹰次数'} }
 
 local function group_segment(text,label,all_labels)
     local i=text:find(label,1,true)
@@ -748,12 +748,27 @@ local function apply_manager_ticks()
     if ticks.uses and ticks.uses.on and ticks.uses.pick then
         local n=ticks.uses.pick
         if n:find('不添加',1,true) or n:find('none',1,true) or n:find('关闭',1,true) then
-            cfg.uses_add=0 cfg.uses_unlimited=false
+            cfg.uses_add=0 cfg.uses_unlimited=false cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
         elseif n:find('unlimited',1,true) then
             cfg.uses_unlimited=true picks[#picks+1]='uses=unlimited'
         else
             local k=n:match('%+(%d)')
             if k then cfg.uses_add=tonumber(k) picks[#picks+1]='uses=+'..k end
+        end
+    end
+    if ticks.eagle_uses and ticks.eagle_uses.on and ticks.eagle_uses.pick then
+        local n=ticks.eagle_uses.pick
+        if n:find('不添加',1,true) or n:find('none',1,true) or n:find('关闭',1,true) then
+            cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
+        elseif n:find('unlimited',1,true) then
+            cfg.eagle_uses_unlimited=true cfg.eagle_uses_add=0
+            picks[#picks+1]='eagle=unlimited'
+        else
+            local k=n:match('%+(%d)')
+            if k then
+                cfg.eagle_uses_add=tonumber(k) cfg.eagle_uses_unlimited=false
+                picks[#picks+1]='eagle=+'..k
+            end
         end
     end
     local cd=ticks.cooldown.pick:match('(%d+)%%')
@@ -825,6 +840,29 @@ local function scan_deployed(dir)
         end
     end
     return found,read
+end
+
+-- EAGLE.* gets its own charge axis; while it is 不添加 the general charges
+-- setting keeps applying, so the default leaves Eagle untouched either way.
+do
+    local base_uses_target=uses_target
+    uses_target=function(orig,kind)
+        if kind=='eagle' then
+            if cfg.eagle_uses_unlimited==true then
+                if type(orig)~='number' or orig<0 then return nil end
+                return -1
+            end
+            local add=math.floor(tonumber(cfg.eagle_uses_add) or 0)
+            if add>0 then
+                if type(orig)~='number' or orig<0 then return nil end
+                local want=orig+add
+                if want>99 then want=99 end
+                if want==orig then return nil end
+                return want
+            end
+        end
+        return base_uses_target(orig,kind)
+    end
 end
 
 local function read_markers(now)
@@ -1072,7 +1110,7 @@ local function cooldown_targets()
                         cd.vanilla_uses[id]=cur_uses
                     end
                     r.uses_vanilla=cd.vanilla_uses[id]
-                    r.uses_target=uses_target(r.uses_vanilla)
+                    r.uses_target=uses_target(r.uses_vanilla,kind)
                     if r.uses_target and not inscope then
                         -- only its charges change; leave its cooldown alone
                         r.charges_only=true
