@@ -40,6 +40,7 @@ HEAP_BASE = 0x000001D500000000
 RECORD_STRIDE = 0x100
 SCAN_SLOTS = 146
 COOLDOWN_OFF = 0x68
+USES_OFF = 0x50            # int32 charges, -1 = unlimited
 NAME_OFF = 0x10
 ID_OFF = 0x00
 VANILLA = 780.0
@@ -93,6 +94,7 @@ class FakeMemory(object):
             buf = bytearray(0x100)
             struct.pack_into('<I', buf, ID_OFF, entry.get('rec_id', rid))
             struct.pack_into('<f', buf, COOLDOWN_OFF, entry.get('cooldown', VANILLA))
+            struct.pack_into('<i', buf, USES_OFF, entry.get('uses', -1))
             name_addr = HEAP_BASE + 0x400000 + rid * 0x100
             if entry.get('name') is not None:
                 raw = entry['name'].encode('latin-1') + b'\0'
@@ -122,6 +124,10 @@ class FakeMemory(object):
         buf = self.records[self.record_addr(rid)]
         return struct.unpack_from('<f', buf, COOLDOWN_OFF)[0]
 
+    def uses(self, rid):
+        buf = self.records[self.record_addr(rid)]
+        return struct.unpack_from('<i', buf, USES_OFF)[0]
+
     def set_cooldown(self, rid, value):
         buf = self.records[self.record_addr(rid)]
         struct.pack_into('<f', buf, COOLDOWN_OFF, value)
@@ -134,6 +140,7 @@ class FakeMemory(object):
         buf = bytearray(0x100)
         struct.pack_into('<I', buf, ID_OFF, rid)
         struct.pack_into('<f', buf, COOLDOWN_OFF, entry.get('cooldown', VANILLA))
+        struct.pack_into('<i', buf, USES_OFF, entry.get('uses', -1))
         name_addr = self.name_addr(rid)
         raw = entry['name'].encode('latin-1') + b'\0'
         self.records['names'][name_addr] = raw + b'\0' * (0x200 - len(raw))
@@ -378,9 +385,10 @@ class Sandbox(object):
         table_ids = {}
         if include_records:
             records = [
-                {'id': 1, 'name': 'TD-220 BASTION', 'cooldown': VANILLA},
-                {'id': 3, 'name': 'Orbital Precision Strike', 'cooldown': 90.0},
-                {'id': 50, 'name': 'TD-110 MAELSTROM', 'cooldown': VANILLA},
+                {'id': 1, 'name': 'VEHICLES. BASTION(TANK)', 'cooldown': VANILLA},
+                # mission stratagems are out of scope by default (missions=no)
+                {'id': 3, 'name': 'MISSIONS. EXTRACTION BEACON', 'cooldown': 180.0},
+                {'id': 50, 'name': 'VEHICLES. STORM(TANK)', 'cooldown': VANILLA},
             ]
             if poison:
                 # a readable record whose name pointer is the classic "-1"

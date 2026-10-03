@@ -76,11 +76,16 @@ class TestBackdoorUnits(unittest.TestCase):
                 try:
                     box.load_backdoor()
                     t = box.rt.globals()['HD2VehicleCooldownTest']
-                    self.assertTrue(t['is_vehicle_name']('TD-220 BASTION'))
-                    self.assertTrue(t['is_vehicle_name']('TD-110 Maelstrom'))
-                    self.assertTrue(t['is_vehicle_name']('EXO-45 Emancipator'))
-                    self.assertFalse(t['is_vehicle_name']('Orbital Precision Strike'))
-                    self.assertFalse(t['is_vehicle_name'](None))
+                    cl = t['classify']
+                    self.assertEqual(cl('VEHICLES. BASTION(TANK)'), 'vehicle')
+                    self.assertEqual(cl('VEHICLES. COMBAT WALKER'), 'mech')
+                    self.assertEqual(cl('EAGLE. REARM'), 'eagle')
+                    self.assertEqual(cl('ORBITAL. LASER'), 'orbital')
+                    self.assertEqual(cl('TEAM WEAPONS. RAILGUN'), 'support')
+                    self.assertEqual(cl('SENTRYS. GATLING'), 'green')
+                    self.assertEqual(cl('MISSIONS. EXTRACTION BEACON'), 'mission')
+                    self.assertEqual(cl('TANK. TANK RELOAD HE'), 'tank_action')
+                    self.assertEqual(cl(None), None)
                     sane = t['sane_ptr']
                     self.assertTrue(sane(0x000001D500000000))
                     self.assertTrue(sane(0x00007FF900000000))
@@ -144,7 +149,7 @@ class TestScanRobustness(unittest.TestCase):
                     self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
                     self.assertAlmostEqual(box.mem.cooldown(50), 390.0, places=3)
                     self.assertAlmostEqual(box.mem.cooldown(2), VANILLA, places=3)
-                    self.assertAlmostEqual(box.mem.cooldown(3), 90.0, places=3)
+                    self.assertAlmostEqual(box.mem.cooldown(3), 180.0, places=3)   # missions off by default
                     self.assertTrue(box.find('vehicle records appeared: 2 target'))
                     self.assertTrue(box.find('cooldown applied to 2 target'))
                     self.assertEqual(int(box.field('errors') or 0), 0)
@@ -189,8 +194,8 @@ class TestScanRobustness(unittest.TestCase):
             self.assertTrue(box.run_until(lambda: 'no vehicle records yet' in box.log_text(),
                                           max_seconds=120.0))
             self.assertEqual(box.eval('HD2VehicleCooldown.cd.state'), 'observe')
-            box.mem.inject({'id': 1, 'name': 'TD-220 BASTION', 'cooldown': VANILLA})
-            box.mem.inject({'id': 50, 'name': 'TD-110 MAELSTROM', 'cooldown': VANILLA})
+            box.mem.inject({'id': 1, 'name': 'VEHICLES. BASTION(TANK)', 'cooldown': VANILLA})
+            box.mem.inject({'id': 50, 'name': 'VEHICLES. STORM(TANK)', 'cooldown': VANILLA})
             self.assertTrue(box.run_until(lambda: applied(box)),
                             'records that appeared later were never picked up: %s' % box.log_text())
             self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
@@ -215,9 +220,9 @@ class TestPercentageMode(unittest.TestCase):
         records = [
             {'id': 1, 'name': 'VEHICLES. BASTION(TANK)', 'cooldown': 780.0},
             {'id': 105, 'name': 'VEHICLES. FAST RECON VEHICLE (FRV)', 'cooldown': 480.0},
-            {'id': 27, 'name': 'VEHICLES. COMBAT WALKER', 'cooldown': 420.0},          # mech
+            {'id': 27, 'name': 'VEHICLES. COMBAT WALKER', 'cooldown': 420.0},          # mech (in blue scope)
             {'id': 50, 'name': 'VEHICLES. STORM(TANK)', 'cooldown': 780.0},
-            {'id': 3, 'name': 'Orbital Precision Strike', 'cooldown': 90.0},
+            {'id': 3, 'name': 'MISSIONS. EXTRACTION BEACON', 'cooldown': 180.0},
         ]
         box = Sandbox(SRC, records=records, config={'percent': 50})
         try:
@@ -227,7 +232,7 @@ class TestPercentageMode(unittest.TestCase):
             self.assertAlmostEqual(box.mem.cooldown(105), 240.0, places=3)
             self.assertAlmostEqual(box.mem.cooldown(27), 210.0, places=3)
             self.assertAlmostEqual(box.mem.cooldown(50), 390.0, places=3)
-            self.assertAlmostEqual(box.mem.cooldown(3), 90.0, places=3)   # non-vehicle untouched
+            self.assertAlmostEqual(box.mem.cooldown(3), 180.0, places=3)   # missions off by default   # non-vehicle untouched
             self.assertTrue(box.find('780->390'))
             self.assertTrue(box.find('480->240'))
             self.assertTrue(box.find('420->210'))
@@ -337,7 +342,7 @@ class TestWriterStateMachine(unittest.TestCase):
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
-            self.assertAlmostEqual(box.mem.cooldown(1), 30.0, places=3)
+            self.assertAlmostEqual(box.mem.cooldown(1), 1.0, places=3)   # clamped to 1s floor
         finally:
             box.cleanup()
 

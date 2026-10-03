@@ -1,10 +1,14 @@
 # HD2 Vehicle Cooldown / 载具冷却
 
-**1.6.0 候选：修掉 1.5.x 从未生效的根因；尚未实机验证。**
-**1.6.0 candidate: fixes why 1.5.x never took effect. Not yet validated in game.**
+**1.9.0 候选：一个模组覆盖红/蓝/绿全部战备（含次数修改）；尚未实机验证。**
+**1.9.0 candidate: one addon for red/blue/green stratagems incl. charges. Not yet validated in game.**
 
 作用：缩短所有载具战略配备（坦克、机甲、FRV）的重新部署冷却，默认 390 秒（原版 780 秒）。
 依赖 Bingus Shared Loader v15+（API 1）。安装包：[`dist/HD2-VehicleCooldown-1.6.0.zip`](dist/HD2-VehicleCooldown-1.6.0.zip)。
+
+**1.9.0：一个模组覆盖全部战备**，红/蓝/绿在配置文件里勾选，蓝战备另有
+就载具/就机甲/就载具和机甲/全部 的互斥选择，次数（+0x50）也可改。配置项与实机字段取证见
+[1.9.0 配置与字段说明](docs/all-stratagem-1.9.0-config.md)。
 
 ## 为什么不生效（实机取证结论）
 

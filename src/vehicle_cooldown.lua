@@ -1,7 +1,16 @@
 -- HD2-Addon: mods/codex/vehicle_cooldown
--- HD2 Vehicle Cooldown 1.7.0 - safe rewrite of the Tank Cooldown v2 family for
--- ALL stratagem vehicles, plus the diagnostics needed to find the field the
--- game actually obeys.
+-- HD2 Stratagem Cooldown 1.9.0 - one addon for every stratagem colour, on top
+-- of the resolver/safety core that is already verified in game:
+--   * red   : ORBITAL. (orbital) and EAGLE. (eagle). EAGLE. REARM is the real
+--             Eagle cycle: Eagle stratagems spend charges and one rearm
+--             restores all of them, so its cooldown paces the whole family.
+--   * blue  : TEAM WEAPONS. / BACKPACK. / CONSUMABLES. plus a mutually
+--             exclusive choice of vehicles / mechs / both / all
+--   * green : SENTRYS. / SENTRIES. / EMPLACEMENTS.
+--   * charges: the uses field at +0x50 (int32, -1 = unlimited) can be scaled or
+--             fixed, so Orbital Laser (3), the mechs (3) and the Eagle entries
+--             (1..4) can be changed too.
+-- Scope lives in VehicleCooldown/config.txt; the guide is at the bottom.
 --
 -- 1.7.0 (diagnostic build, after the first real in-game run of 1.6.0)
 --   The 1.6.0 fix works mechanically - the game log shows
@@ -102,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='1.7.3',status='starting',errors=0}
+local M={version='1.9.0',status='starting',errors=0}
 rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
@@ -129,7 +138,11 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,cooldown_s=390,percent=50,stable_s=1,uptime_s=0,probe=false}
+    local d={cooldown=true,cooldown_s=390,percent=50,uses_percent=100,uses_fixed=0,
+             stable_s=1,uptime_s=0,probe=false,
+             red=true,orbital=true,eagle=true,
+             blue=true,blue_scope='all',
+             green=true,missions=false}
     local ok,text=pcall(function()
         local f=io.open(CFG,'r') if not f then return nil end
         local t=f:read('*a') f:close() return t
@@ -139,7 +152,10 @@ local function conf()
             os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\npercent=50\ncooldown_s=390\nstable_s=1\nuptime_s=0\n')
+                w:write('cooldown=yes\npercent=50\nuses_percent=100\nuses_fixed=0\n')
+                w:write('red=yes\norbital=yes\neagle=yes\n')
+                w:write('blue=yes\nblue_scope=all\ngreen=yes\nmissions=no\n')
+                w:write('cooldown_s=390\nstable_s=1\nuptime_s=0\nprobe=no\n')
                 w:close()
             end
         end)
@@ -150,7 +166,13 @@ local function conf()
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
-        for _,k in ipairs({'cooldown_s','percent','stable_s','uptime_s'}) do
+        for _,k in ipairs({'red','orbital','eagle','blue','green','missions'}) do
+            v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
+            if v then d[k]=(v=='yes' or v=='true' or v=='on') end
+        end
+        v=line:match('^%s*blue_scope%s*=%s*(%a+)%s*$')
+        if v then d.blue_scope=v end
+        for _,k in ipairs({'cooldown_s','percent','uses_percent','uses_fixed','stable_s','uptime_s'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%d+%.?%d*)%s*$')
             if v then d[k]=tonumber(v) end
         end
@@ -333,14 +355,73 @@ end
 
 -- record layout (validated by Tank Cooldown v2)
 local OFF_ID,OFF_HASH,OFF_STR1,OFF_STR2,OFF_STR3=0x00,0x04,0x10,0x18,0x20
+local OFF_USES=0x50          -- int32 charges; -1 = unlimited (verified live)
 local OFF_COOLDOWN,REC_READ=0x68,0xB0
-local VEHICLE_WORDS={'VEHICLES.','EXOSUIT.','COMBAT WALKER','BASTION','MAELSTROM','TD-','EXO-','EMANCIPATOR','PATRIOT','OBSIDIAN','STEWARD','FRV'}
-local function is_vehicle_name(name)
-    if not name then return false end
-    for _,w in ipairs(VEHICLE_WORDS) do
-        if name:find(w,1,true) then return true end
+-- 1.9.0: the stratagem category lives in the name prefix, which follows the
+-- in-game colour coding. Charges live at +0x50 (int32, -1 = unlimited).
+--   ORBITAL.                                   -> orbital (red)
+--   EAGLE.                                     -> eagle   (red; REARM included)
+--   TEAM WEAPONS. / BACKPACK. / CONSUMABLES.   -> support (blue)
+--   SENTRYS. / SENTRIES. / EMPLACEMENTS.       -> green
+--   VEHICLES. <tank|FRV>                       -> vehicle (blue scope)
+--   VEHICLES. COMBAT WALKER*                   -> mech    (blue scope)
+--   MISSIONS.*                                 -> mission (off by default)
+--   PRESIDENT REWARDS.*                        -> mapped by keyword
+local cfg                     -- assigned from conf() below; declared early so
+                              -- the classification helpers close over it
+local function prefix_of(name)
+    local dot=name:find('.',1,true)
+    return dot and name:sub(1,dot-1) or name
+end
+
+local function classify(name)
+    if not name then return nil end
+    if name:find('COMBAT WALKER',1,true) then return 'mech' end
+    local p=prefix_of(name)
+    if p=='ORBITAL' then return 'orbital' end
+    if p=='EAGLE' then return 'eagle' end
+    if p=='TEAM WEAPONS' or p=='BACKPACK' or p=='CONSUMABLES' then return 'support' end
+    if p=='SENTRYS' or p=='SENTRIES' or p=='EMPLACEMENTS' then return 'green' end
+    if p=='VEHICLES' then return 'vehicle' end
+    if p=='MISSIONS' or p=='MISSIONS CLAN STATION' then return 'mission' end
+    if p=='PRESIDENT REWARDS' then
+        if name:find('MACHINEGUN',1,true) or name:find('BACKPACK',1,true) then return 'support' end
+        if name:find('SENTRY',1,true) then return 'green' end
+        return 'other'
     end
+    if p=='TANK' then return 'tank_action' end
+    return 'other'
+end
+
+local function in_scope(kind)
+    if kind==nil or not cfg.cooldown then return false end
+    local scope=cfg.blue_scope or 'all'
+    if kind=='orbital' then return cfg.red==true and cfg.orbital==true end
+    if kind=='eagle'   then return cfg.red==true and cfg.eagle==true end
+    if kind=='support' then return cfg.blue==true and scope=='all' end
+    if kind=='vehicle' then
+        return cfg.blue==true and (scope=='vehicles' or scope=='both' or scope=='all')
+    end
+    if kind=='mech' then
+        return cfg.blue==true and (scope=='mechs' or scope=='both' or scope=='all')
+    end
+    if kind=='green'   then return cfg.green==true end
+    if kind=='mission' then return cfg.missions==true end
     return false
+end
+
+-- charges: -1 means unlimited and is left alone; a percentage never lowers the
+-- count below 1, and uses_fixed overrides the percentage when it is > 0
+local function uses_target(orig)
+    if type(orig)~='number' or orig<0 then return nil end
+    local fixed=tonumber(cfg.uses_fixed) or 0
+    if fixed>0 then return fixed end
+    local pct=tonumber(cfg.uses_percent) or 100
+    if pct==100 then return nil end
+    local want=math.floor(orig*pct/100+0.5)
+    if want<1 then want=1 elseif want>99 then want=99 end
+    if want==orig then return nil end
+    return want
 end
 local function slot_ptr(id)
     local b=read_at(table_base+id*8,8)
@@ -395,11 +476,12 @@ end
 if rawget(_G,'__HD2_VC_TEST')==true then
     return {
         make_feature=make_feature, locate_table=function() return locate_table() end,
-        is_vehicle_name=is_vehicle_name, u32_bytes=u32_bytes, sane_ptr=sane_ptr,
+        classify=classify, in_scope=in_scope, uses_target=uses_target,
+        u32_bytes=u32_bytes, sane_ptr=sane_ptr,
         f32_bits=f32_bits, f32_from_bits=f32_from_bits, conf=conf,
     }
 end
-local cfg=conf()
+cfg=conf()
 -- Resolve the table ONCE at load, exactly like the original TankCooldown:
 -- a failed resolver means the build is unknown - retrying per frame would scan
 -- game.dll's whole image every frame (that mistake cost ~54ms/frame).
@@ -428,7 +510,7 @@ log('table located at load: base='..hex(table_base)..' (single pass)')
 -- "vehicles are always available", which is not what this addon promises
 do
     local want=tonumber(cfg.cooldown_s) or 390
-    if want<30 then want=30 elseif want>7200 then want=7200 end
+    if want<1 then want=1 elseif want>7200 then want=7200 end
     if want~=cfg.cooldown_s then
         log(string.format('cooldown_s=%s out of range - using %s',tostring(cfg.cooldown_s),tostring(want)))
     end
@@ -436,15 +518,16 @@ do
 end
 local function desired_bits() return f32_bits(cfg.cooldown_s) end
 
--- 1.7.2: percent = 50 means "half of THIS stratagem's own cooldown" (the v2 mod
--- called the same option Default50). percent=0 falls back to the fixed
+-- 1.7.2/1.9.0: percent = 50 means "half of THIS stratagem's own cooldown" (the
+-- v2 mod called the same option Default50). percent=0 falls back to the fixed
 -- cooldown_s. A percentage never lengthens a stratagem unless it is above 100.
+-- The floor is 1s, not 30s: Eagle entries legitimately sit at 15s.
 local function target_bits_for(orig)
     local pct=tonumber(cfg.percent) or 50
     local want
     if pct>0 then want=orig*pct/100 else want=tonumber(cfg.cooldown_s) or 390 end
     if pct<=100 and want>orig then want=orig end
-    if want<30 then want=30 elseif want>7200 then want=7200 end
+    if want<1 then want=1 elseif want>7200 then want=7200 end
     return f32_bits(want),want
 end
 local born=os.clock()
@@ -464,8 +547,10 @@ local function target_summary(limit)
     for id,rec in pairs(cd.targets or {}) do
         n=n+1
         if n<=(limit or 6) then
-            parts[#parts+1]=string.format('%d=%s %s->%s',id,tostring(rec.name or '?'),
-                tostring(rec.vanilla or '?'),tostring(rec.target or '?'))
+            parts[#parts+1]=string.format('%d=%s[%s] %s->%s%s',id,tostring(rec.name or '?'),
+                tostring(rec.kind or '?'),tostring(rec.vanilla or '?'),tostring(rec.target or '?'),
+                rec.uses_target and string.format(' charges %s->%s',tostring(rec.uses_vanilla),
+                    tostring(rec.uses_target)) or '')
         end
     end
     return n..' target(s) ['..table.concat(parts,', ')..']'
@@ -540,12 +625,15 @@ local function cooldown_targets()
             note_error('read slot '..id,r)
         elseif r then
             records=records+1
-            if r.id==id and is_vehicle_name(r.name) then
+            local kind=classify(r.name)
+            if r.id==id and in_scope(kind) then
                 local cd_s=f32_from_bits(r.cooldown_bits)
-                if #cand<12 then
-                    cand[#cand+1]=string.format('%d=%s/%s',id,tostring(r.name),tostring(cd_s))
+                local uses=u32_at(r.raw_uses and r.raw_uses or '',1)
+                if #cand<16 then
+                    cand[#cand+1]=string.format('%d=%s[%s]%s/%s',id,tostring(r.name),
+                        tostring(kind),tostring(cd_s),'?')
                 end
-                if cd_s==cd_s and cd_s>=30 and cd_s<=7200 then
+                if cd_s==cd_s and cd_s>=1 and cd_s<=7200 then
                     local raw=read_at(r.ptr,REC_READ)
                     cd.vanilla=cd.vanilla or {}
                     local vanilla=cd.vanilla[id]
@@ -576,6 +664,15 @@ local function cooldown_targets()
                     end
                     r.vanilla=(vanilla and vanilla.value) or cd_s
                     r.target_bits,r.target=target_bits_for(r.vanilla)
+                    r.kind=kind
+                    -- charges: +0x50 int32, -1 = unlimited
+                    local cur_uses=raw and i32_at(raw,OFF_USES+1) or nil
+                    if cd.vanilla_uses==nil then cd.vanilla_uses={} end
+                    if cd.vanilla_uses[id]==nil and cur_uses~=nil then
+                        cd.vanilla_uses[id]=cur_uses
+                    end
+                    r.uses_vanilla=cd.vanilla_uses[id]
+                    r.uses_target=uses_target(r.uses_vanilla)
                     t[id]=r matched=matched+1
                 else
                     rejects=rejects+1
@@ -693,6 +790,18 @@ local function cooldown_write(cfg)
                 patched[#patched+1]=string.format('%d+0x%X',id,off)
             end
         end
+        -- charges (+0x50): only for records that really are limited
+        if rec.uses_target then
+            local cur_uses=i32_at(raw,OFF_USES+1)
+            if cur_uses~=rec.uses_target then
+                if not write4(cur.ptr+OFF_USES,rec.uses_target) then
+                    return false,string.format('charges write failed @%d+0x%X',id,OFF_USES)
+                end
+                cd.written[#cd.written+1]={ptr=cur.ptr,off=OFF_USES,bits=cur_uses,id=id}
+                patched[#patched+1]=string.format('%d+0x%X(charges %s->%s)',id,OFF_USES,
+                    tostring(rec.uses_vanilla),tostring(rec.uses_target))
+            end
+        end
     end
     if #patched>0 then
         log('patched offsets: '..table.concat(patched,', '))
@@ -788,9 +897,14 @@ local function tick_cooldown()
             else
                 local raw=read_at(cur.ptr,REC_READ)
                 if raw then
-                    for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do
+                    local watches={}
+                    for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do watches[#watches+1]=off end
+                    if rec.uses_target then watches[#watches+1]=OFF_USES end
+                    for _,off in ipairs(watches) do
+                        local want=(off==OFF_USES) and rec.uses_target or desired
                         local bits=u32_at(raw,off+1)
-                        if bits~=desired then
+                        if off==OFF_USES then bits=i32_at(raw,off+1) end
+                        if bits~=want then
                             rec.needs_rewrite=true
                             -- the engine wrote this field itself - it is live
                             -- state, not a dead copy. Report it once.
@@ -823,9 +937,13 @@ local function tick_cooldown()
                         local raw=cur and read_at(cur.ptr,REC_READ)
                         local ok=true
                         if raw then
-                            for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do
-                                local bits=u32_at(raw,off+1)
-                                if bits~=want and not write4(cur.ptr+off,want) then ok=false break end
+                            local rewrites={}
+                            for _,off in ipairs(rec.offs or {OFF_COOLDOWN}) do rewrites[#rewrites+1]=off end
+                            if rec.uses_target then rewrites[#rewrites+1]=OFF_USES end
+                            for _,off in ipairs(rewrites) do
+                                local target=(off==OFF_USES) and rec.uses_target or want
+                                local bits=(off==OFF_USES) and i32_at(raw,off+1) or u32_at(raw,off+1)
+                                if bits~=target and not write4(cur.ptr+off,target) then ok=false break end
                             end
                         else
                             ok=false
@@ -881,56 +999,55 @@ M.cd=cd
 M.uptime_s,M.stable_s,M.cooldown_s=cfg.uptime_s or 0,cfg.stable_s or 1,cfg.cooldown_s
 M.cooldown_enabled=cfg.cooldown and 1 or 0
 M.scan_ids=SCAN_IDS
+M.mode=string.format('red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s missions=%s',
+    tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
+    tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),tostring(cfg.missions))
 log(string.format('v%s installed: all-vehicle cooldown, uptime gate %ss, stable gate %ss, cooldown_s=%s',
     M.version,tostring(cfg.uptime_s or 0),tostring(cfg.stable_s or 1),tostring(cfg.cooldown_s)))
 return M
 
 -- [guide:begin]
--- HD2 Vehicle Cooldown 1.6.0 - quick guide / 快速指南
+-- HD2 Stratagem Cooldown 1.9.0 - quick guide / 快速指南
 --
 -- What it does / 作用
---   Shortens the redeploy cooldown of every stratagem vehicle (tanks, exos,
---   FRV). Default target: 390 s instead of the vanilla 780 s.
---   缩短所有载具战略配备（坦克、机甲、FRV）的重新部署冷却，默认 390 秒（原版 780 秒）。
---
--- Requirements / 依赖
---   Bingus Shared Loader v15+ (API 1). Enable both and deploy.
---   需要 Bingus Shared Loader v15+（API 1），两个都要启用并部署。
---   Do not run Tank Cooldown v2 next to this one: both write the same field.
---   不要与 Tank Cooldown v2 同时启用，两者写同一个字段。
+--   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value
+--   (default 50%) and can change how many charges a limited stratagem has.
+--   按每条战备自己的原值乘以百分比缩短冷却（默认 50%），并可修改有限次数战备的次数。
 --
 -- Config / 配置
---   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
---     cooldown=yes|no      feature switch (default yes)
---     cooldown_s=390       target cooldown in seconds (vanilla 780)
---     stable_s=6           pointer-stability window before any write
---     uptime_s=60          minimum process uptime before the first write
---   The file is created on first run; edit it and restart the game.
---   首次运行自动生成；改完需重启游戏。uptime_s 越大越保守。
+--   %LOCALAPPDATA%\CowboyBingus\Helldivers2\StratagemCooldown\config.txt
+--     percent=50             cooldown percentage (50 = halve; 0 = use cooldown_s)
+--     cooldown_s=390         fixed cooldown, only when percent=0
+--     uses_percent=100       charges percentage (100 = unchanged, 200 = double;
+--                            only affects stratagems that have a finite count)
+--     uses_fixed=0           fixed charge count (0 = off, overrides uses_percent)
+--     red=yes                red stratagems (offensive)
+--     orbital=yes              - ORBITAL. series
+--     eagle=yes                - EAGLE. series incl. EAGLE. REARM
+--     blue=yes               blue stratagems (support equipment)
+--     blue_scope=all           - vehicles | mechs | both | all
+--     green=yes              green stratagems (sentries, emplacements)
+--     missions=no            mission stratagems (reinforce/extraction/...) - off
+--     stable_s=1             pointer-stability window before writing
+--     uptime_s=0             write as soon as the records are valid
+--     probe=no               opt-in diagnostic memory search
+--
+-- Categories / 分类
+--   red   : ORBITAL. and EAGLE. (EAGLE. REARM is the real Eagle cycle: Eagle
+--           stratagems spend charges and one rearm restores them all, so its
+--           cooldown is what paces the family)
+--   blue  : TEAM WEAPONS. BACKPACK. CONSUMABLES., plus vehicles/mechs according
+--           to blue_scope (VEHICLES. tanks and FRV = vehicles, VEHICLES.
+--           COMBAT WALKER = mechs). blue_scope is mutually exclusive:
+--             就载具=vehicles  就机甲=mechs  就载具和机甲=both  全部=all
+--   green : SENTRYS. SENTRIES. EMPLACEMENTS.
+--   Charges: Orbital Laser 3, mechs 3, Eagle 1..4; -1 means unlimited and is
+--   never turned into a limit.
+--   次数：激光轨道 3、机甲 3、飞鹰 1..4；-1 表示无限，不会被改成有限。
 --
 -- Log / 日志
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\Logs\VehicleCooldown.log
---   A healthy session shows, in order:
---     table located at load -> v1.6.0 installed -> uptime gate passed
---     -> vehicle records appeared: N target(s) -> cooldown applied to N ...
---     -> heartbeat every 60 s (state / targets / errors)
---   正常一次会话依次出现：定位成功、安装、通过开机门槛、发现记录、写入成功，
---   之后每 60 秒一条心跳（状态/目标数/错误数）。
---   "no vehicle records yet" means the table is readable but no vehicle record
---   matched (wrong game build, or the field moved) - the log then prints the
---   counters: slots / records / matched / rejects / contained_faults.
---   出现 no vehicle records yet 表示表可读但没有匹配到载具记录，日志会同时给出计数。
---
--- 1.6.0 fixed three real defects of 1.5.x (see the header of this file):
---   the table base was stored in a shadowing local (every scan died on a nil
---   upvalue), the stability gate's self signature was wrong, and the 146-slot
---   sweep followed unvalidated pointers. Any unexpected error is now logged
---   and counted in M.errors / M.last_error instead of disappearing.
---   1.6.0 修掉 1.5.x 的三个真实缺陷：表基址被同名局部变量遮蔽（每次扫描都因
---   nil 上值中断）、稳定门槛的自参数签名错误、146 槽扫描跟随未校验指针；
---   现在任何异常都会写日志并计入 M.errors / M.last_error，不再静默消失。
---
--- This guide is shipped inside the package as README.txt. It is generated from
--- this comment block by work/standalone/build_vc.py, so it can never drift.
--- 本指南由构建脚本从源码注释生成，与代码不会脱节。
+--   Healthy session: located -> installed -> mode=... -> records appeared ->
+--   patched offsets -> cooldown applied -> heartbeat every 60s.
+--   健康会话：定位 -> 安装 -> 模式 -> 发现记录 -> 写入偏移 -> 应用成功 -> 心跳。
 -- [guide:end]
