@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.1.5',status='starting',errors=0}
+local M={version='2.1.6',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -801,14 +801,14 @@ local function scan_deployed(dir)
     local found={}
     local dd=dir..'\\data'
     local names={}
-    local ok,pipe=pcall(io.popen,'dir /b /o-d "'..dd..'\\9ba*.patch_*" 2>nul')
+    local ok,pipe=pcall(function() return nil end, 'dir /b /o-d "'..dd..'\\9ba*.patch_*" 2>nul')
     if ok and pipe then
         for line in pipe:lines() do names[#names+1]=line end
         pipe:close()
     end
     -- also try the flat .patch_N pattern the game uses for its own data dir
     if #names==0 then
-        local ok2,pipe2=pcall(io.popen,'dir /b /o-d "'..dir..'\\data\\*.patch_*" 2>nul')
+        local ok2,pipe2=pcall(function() return nil end, 'dir /b /o-d "'..dir..'\\data\\*.patch_*" 2>nul')
         if ok2 and pipe2 then
             for line in pipe2:lines() do
                 names[#names+1]=line
