@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.2',status='starting',errors=0}
+local M={version='2.4.3',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -128,7 +128,6 @@ local LOG=HOME..'Logs/VehicleCooldown.log'
 
 -- 2.3.0: the config and log directories are created with kernel32 directly, so a
 -- blank machine gets a working log and no cmd.exe is ever spawned (the old
--- os.execute('mkdir ...') popped a console window).
 do
     local ok,err=pcall(function()
         ffi.cdef[[ int CreateDirectoryA(const char *path, void *sa); ]]
