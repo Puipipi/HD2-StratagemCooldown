@@ -90,3 +90,16 @@ cooldown applied to 106 target(s) [1=VEHICLES. BASTION(TANK)[vehicle] 780->390, 
 
 另外：`pcall` 的返回值处理已修正（此前 `blocks(from manager DB): true` 是因为把函数第一个返回值
 `true` 当成了摘要）；`eagle_uses` 的重复读取块已删除（此前日志会打印两次 `eagle=+3`）。
+
+## 端到端：配置生成器 → 配置文件 → 模组行为（2.4.8，node 实跑）
+
+不再只是检查键名：把包里的 `config-builder.html` 的 **JavaScript 本体**取出来，在 node v24 下用
+DOM 桩执行 `gen()` 得到文本，再把这段文本原样放进 `config.txt` 跑沙箱。五组全部与预期一致：
+
+| 生成器选择 | 生成的键 | 结果 |
+|-----------|---------|------|
+| 默认（80 / 关闭红 / 就载具 / 关闭绿 / 不添加 / 飞鹰不修改） | `red=no blue=yes blue_scope=vehicles green=no uses_add=0 uses_unlimited=no eagle_uses_add=0` | 坦克 624、FRV 384，其余原版 |
+| 50% + 轨道+飞鹰 + 全部 + 绿开 + 无限 + 飞鹰+2 | `red=yes blue=all green=yes uses_unlimited=yes eagle_uses_add=2` | 坦克 390、FRV 240、机甲 210、机甲/激光 -1、飞鹰 4、地雷 60、REARM 75 |
+| 只轨道 | `red=yes eagle=no` | 轨道激光 240、REARM 150 |
+| 只飞鹰 | `red=yes orbital=no` | REARM 120、轨道激光 300 |
+| 只机甲 + 次数+3 | `blue=mechs uses_add=3` | 机甲 336、机甲次数 6，坦克/FRV/地雷不变 |
