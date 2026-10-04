@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.9',status='starting',errors=0}
+local M={version='3.0.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1467,190 +1467,167 @@ local function cooldown_write(cfg)
     end
     return true
 end
-
-
 --------------------------------------------------------------------------
--- Optional in-game settings page: the "Mod Options Menu" framework (MOM), when
--- that mod is installed. Contract as used by other mods:
---   local host = rawget(_G,'ModOptionsMenu'); host.api == 1
---   host.register_option(id, spec)  with spec.type = 'toggle' | 'slider' | 'choice'
---   host.on_change(id, fn)          and  host.get(id)
--- Registration is retried because addons load in either order. Values the menu
--- saved last session are applied at startup unless config.txt pins that key, and
--- clicking an option applies it immediately and re-scans.
+-- Optional in-game settings page: the "Mod Options Menu" framework (MOM).
+-- Contract taken from a working addon (ExoLoadout v0.8.0) instead of guessed:
+--   host = rawget(_G,'ModOptionsMenu');  host.api == 1
+--   host.register_option(id, spec)
+--     spec.type  = 'toggle' | 'choice'        -- those two are what it really takes
+--     spec.mod / spec.label / spec.description
+--     spec.choices = { 'text', ... }          -- choice
+--     spec.default = <INDEX into choices>     -- a NUMBER, not the text
+--   host.get(id) -> the index of a choice;  host.set(id, index);  host.on_change(id, fn)
+-- Every block with more than two states is therefore a choice whose value is an index.
+-- Exact numbers the list cannot express stay in config.txt (percent=65, uses_add=7).
 local MOM_ID='stratagem_cooldown'
 local mom={host=nil,last_try=-99}
--- labels and choice words carry both languages; the values are matched by keyword
--- so a player reading either language gets the same result
-local MOM_OPTS={
-    {key='percent',label='冷却保留百分比 / Cooldown kept (%)',kind='slider',
-     default=80,min=10,max=100,step=5},
-    {key='red',label='红战备 / Red stratagems',kind='choice',default='关闭 off',
-     choices={'关闭 off','飞鹰 eagle','轨道 orbital','全部 all'}},
-    {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='仅载具 vehicles',
-     choices={'关闭 off','仅载具 vehicles','仅机甲 mechs','仅载具和机甲 vehicles + mechs',
-              '仅支援武器 support only','全部 all'}},
-    {key='green',label='绿战备 / Green stratagems',kind='toggle',default=false},
-    {key='charges_add',label='次数增加 (最多+5) / Extra charges',kind='slider',
-     default=0,min=0,max=5,step=1},
-    {key='charges_unlimited',label='取消次数上限 / Unlimited charges',kind='toggle',
-     default=false},
-    {key='eagle_charges_add',label='飞鹰次数增加 (最多+5) / Extra Eagle charges',kind='slider',
-     default=0,min=0,max=5,step=1},
-}
 
-local function mom_apply(key,value)
-    if key=='enabled' then
-        cfg.cooldown=(value==true or value=='on' or value=='true')
-    elseif key=='percent' then
-        local n=tonumber(tostring(value):match('(%d+%.?%d*)'))
-        if n then
-            if n<10 then n=10 elseif n>100 then n=100 end   -- a free number, kept sane
-            cfg.percent=n
-        end
-    elseif key=='red' then
-        local v=tostring(value)
-        if v:find('全部',1,true) or v:find('all',1,true) then
-            cfg.red,cfg.orbital,cfg.eagle=true,true,true
-        elseif v:find('轨道',1,true) or v:find('orbital',1,true) then
-            cfg.red,cfg.orbital,cfg.eagle=true,true,false
-        elseif v:find('飞鹰',1,true) or v:find('eagle',1,true) then
-            cfg.red,cfg.orbital,cfg.eagle=true,false,true
-        else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
-    elseif key=='blue' then
-        local v=tostring(value)
-        if v:find('全部',1,true) or v:find('all',1,true) then
-            cfg.blue=true cfg.blue_scope='all'
-        elseif v:find('仅支援武器',1,true) or v:find('support only',1,true) then
-            cfg.blue=true cfg.blue_scope='support'
-        elseif v:find('载具和机甲',1,true) or v:find('vehicles + mechs',1,true) then
-            cfg.blue=true cfg.blue_scope='both'
-        elseif v:find('仅载具',1,true) or v:find('vehicles',1,true) then
-            cfg.blue=true cfg.blue_scope='vehicles'
-        elseif v:find('仅机甲',1,true) or v:find('mechs',1,true) then
-            cfg.blue=true cfg.blue_scope='mechs'
-        else cfg.blue=false end
-    elseif key=='green' then
-        cfg.green=(value==true or value=='on' or value=='true')
-    elseif key=='charges_add' then
-        local n=tonumber(tostring(value):match('(%d+)')) or 0
-        if n<0 then n=0 elseif n>20 then n=20 end
-        cfg.uses_add=n
-    elseif key=='charges_unlimited' then
-        cfg.uses_unlimited=(value==true or value=='on' or value=='true')
-    elseif key=='charges' then                      -- legacy choice form still works
-        local v=tostring(value)
-        if v:find('unlimited',1,true) or v:find('无限',1,true) then
-            cfg.uses_unlimited=true cfg.uses_add=0
-        else
-            cfg.uses_add=tonumber(v:match('(%d+)')) or 0
-            cfg.uses_unlimited=false
-        end
-    elseif key=='eagle_charges_add' then
-        local n=tonumber(tostring(value):match('(%d+)')) or 0
-        if n<0 then n=0 elseif n>20 then n=20 end
-        cfg.eagle_uses_add=n
-        cfg.eagle_uses_unlimited=false
-    elseif key=='eagle_charges' then                -- legacy choice form still works
-        cfg.eagle_uses_add=tonumber(tostring(value):match('(%d+)')) or 0
-        cfg.eagle_uses_unlimited=false
-    else
-        return false
-    end
-    return true
+local function mom_pct(v)
+    local n=tonumber((tostring(v):gsub('%%','')))
+    return n
 end
 
--- a settings change must re-enumerate: the observe branch re-reads every record
--- and re-patches from the vanilla values it cached on the first scan
-local function mom_rescan()
-    cd.targets=nil
-    cd.state='observe'
-    cd.next_scan=nil
-    cd.scan_note=nil
-    cd.stable_since=nil
+local MOM_OPTS={
+    {key='percent', kind='choice', label='冷却保留百分比 / Cooldown kept',
+     choices={'100%','90%','80%','70%','60%','50%','40%','30%','20%','10%'},
+     value='80%',
+     note='任何非整数百分比写在 config.txt（percent=65）。',
+     apply=function(v)
+         local n=mom_pct(v)
+         if n then cfg.percent=n cfg.min_cooldown=(cfg.min_cooldown or 60) end
+     end},
+    {key='red', kind='choice', label='红战备 / Red stratagems',
+     choices={'关闭 / Off','飞鹰 / Eagle','轨道 / Orbital','全部 / All'},
+     value='关闭 / Off',
+     note='轨道与飞鹰（互斥，选一项）。',
+     apply=function(v)
+         if v:find('全部',1,true) or v:find('all',1,true) then
+             cfg.red,cfg.orbital,cfg.eagle=true,true,true
+         elseif v:find('轨道',1,true) or v:find('orbital',1,true) then
+             cfg.red,cfg.orbital,cfg.eagle=true,true,false
+         elseif v:find('飞鹰',1,true) or v:find('eagle',1,true) then
+             cfg.red,cfg.orbital,cfg.eagle=true,false,true
+         else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
+     end},
+    {key='blue', kind='choice', label='蓝战备 / Blue stratagems',
+     choices={'关闭 / Off','仅载具 / Vehicles only','仅机甲 / Mechs only',
+              '仅载具和机甲 / Vehicles + Mechs','仅支援武器 / Support weapons only',
+              '全部 / All'},
+     value='关闭 / Off',
+     note='蓝战备范围（互斥，选一项）。',
+     apply=function(v)
+         if v:find('全部',1,true) or v:find('all',1,true) then
+             cfg.blue=true cfg.blue_scope='all'
+         elseif v:find('仅支援武器',1,true) or v:find('support',1,true) then
+             cfg.blue=true cfg.blue_scope='support'
+         elseif v:find('仅载具和机甲',1,true) or v:find('载具和机甲',1,true) then
+             cfg.blue=true cfg.blue_scope='both'
+         elseif v:find('仅载具',1,true) or v:find('vehicles',1,true) then
+             cfg.blue=true cfg.blue_scope='vehicles'
+         elseif v:find('仅机甲',1,true) or v:find('mechs',1,true) then
+             cfg.blue=true cfg.blue_scope='mechs'
+         else cfg.blue=false end
+     end},
+    {key='green', kind='toggle', label='绿战备 / Green stratagems', value=false,
+     note='哨戒、炮台、地雷/特斯拉/护盾 一起开关。',
+     apply=function(v) cfg.green=(v==true or v=='true' or v=='on') end},
+    {key='charges', kind='choice', label='次数增加 / Extra charges',
+     choices={'不添加 / None','+1','+2','+3','+4','+5','无限制 / Unlimited'},
+     value='不添加 / None',
+     note='有限次数战备；无限制在最右。自定义数量写在 config.txt（uses_add=7）。',
+     apply=function(v)
+         if v:find('无限制',1,true) or v:find('unlimited',1,true) then
+             cfg.uses_unlimited=true cfg.uses_add=0
+         elseif v:find('不添加',1,true) or v:find('none',1,true) then
+             cfg.uses_unlimited=false cfg.uses_add=0
+         else
+             local n=tonumber(v:match('(%d+)'))
+             if n then cfg.uses_add=n cfg.uses_unlimited=false end
+         end
+     end},
+    {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
+     choices={'不添加 / None','+1','+2','+3','+4','+5'},
+     value='不添加 / None',
+     note='只作用于 EAGLE.*；自定义数量写 eagle_uses_add=。',
+     apply=function(v)
+         if v:find('不添加',1,true) or v:find('none',1,true) then
+             cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
+         else
+             local n=tonumber(v:match('(%d+)'))
+             if n then cfg.eagle_uses_add=n cfg.eagle_uses_unlimited=false end
+         end
+     end},
+}
+
+local function mom_index(o)
+    for i,c in ipairs(o.choices or {}) do
+        if c==o.value then return i end
+    end
+    return 1
+end
+
+local function mom_value(o,raw)
+    if o.kind=='toggle' then return raw==true or raw=='true' end
+    local i=tonumber(raw) or 1
+    return (o.choices and o.choices[i]) or (o.choices and o.choices[1])
+end
+
+local function mom_rescan_safe()
+    local f=mom_rescan
+    if type(f)=='function' then pcall(f) end
 end
 
 local function mom_register(host)
     mom.host=host
-    local n=0
-    -- 2.9.9: which spelling the framework wants is not documented anywhere I can
-    -- read, and only 'toggle' ever registered. So try an ordered list of plausible
-    -- definitions per option and keep the first one it accepts; every refusal is
-    -- logged with the reason so the log names the rule outright.
-    local function mom_candidates(o)
-        local base={mod='Stratagem Cooldown',label=o.label,description=o.label,
-                    default=o.default}
-        local out={}
-        if o.kind=='toggle' then
-            local a={} for k,v in pairs(base) do a[k]=v end
-            a.type='toggle' out[#out+1]=a
-        elseif o.kind=='slider' then
-            for _,t in ipairs({'slider','number','int','range','integer'}) do
-                local a={} for k,v in pairs(base) do a[k]=v end
-                a.type=t a.min=o.min a.max=o.max a.step=o.step out[#out+1]=a
-            end
-        else
-            for _,t in ipairs({'choice','select','dropdown','enum','list','options'}) do
-                local a={} for k,v in pairs(base) do a[k]=v end
-                a.type=t a.choices=o.choices out[#out+1]=a
-                local b={} for k,v in pairs(a) do b[k]=v end
-                b.default=1 out[#out+1]=b                 -- index form
-                local c={} for k,v in pairs(a) do c[k]=v end
-                c.default=o.default c.choices=o.choices out[#out+1]=c
-            end
-        end
-        return out
-    end
     local rejected={}
+    local n=0
     for _,o in ipairs(MOM_OPTS) do
-        local ok,why=false,nil
-        for _,spec in ipairs(mom_candidates(o)) do
-            local tried,result,reason=pcall(host.register_option,MOM_ID..'.'..o.key,spec)
-            if tried and result then ok=true break end
-            why=string.format('type=%s default=%s -> %s',tostring(spec.type),
-                              tostring(spec.default),tostring(tried and reason or result))
+        local spec={mod='战备冷却 / Stratagem Cooldown',label=o.label,
+                    description=o.note or o.label,type=o.kind}
+        if o.kind=='toggle' then
+            spec.default=(o.value==true)
+        else
+            spec.choices=o.choices
+            spec.default=mom_index(o)
         end
-        if not ok then
-            rejected[#rejected+1]=string.format('%s (%s): %s',o.key,tostring(o.kind),tostring(why))
-        end
-        if ok then
+        local ok,res,why=pcall(host.register_option,MOM_ID..'.'..o.key,spec)
+        if ok and res then
             n=n+1
-            local key=o.key
-            if type(host.on_change)=='function' then
-                local guard=({percent='percent',red='red',blue='blue',green='green',
-                              charges_add='uses_add',charges_unlimited='uses_unlimited',
-                              eagle_charges_add='eagle_uses_add'})[key] or key
-                host.on_change(MOM_ID..'.'..key,function(value)
-                    if type(cfg.explicit)=='table' and cfg.explicit[guard] then
-                        log('menu: '..key..' left alone, config.txt sets '..guard..' explicitly')
-                        return
-                    end
-                    if mom_apply(key,value) then
-                        mom_rescan()
-                        log(string.format('menu: %s=%s - re-scanning',key,tostring(value)))
-                    end
-                end)
-            end
+            pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
+                local v=mom_value(o,value)
+                o.value=v
+                local fine,failure=pcall(o.apply,v)
+                if not fine then
+                    log('menu: applying '..o.key..' failed: '..tostring(failure))
+                else
+                    log('menu: '..o.key..' = '..tostring(v))
+                    mom_rescan_safe()
+                end
+            end)
+        else
+            rejected[#rejected+1]=string.format('%s (%s): %s',o.key,o.kind,
+                                                tostring(ok and why or res))
         end
     end
     log(string.format('Mod Options Menu found: %d/%d settings registered on its %s page',
         n,#MOM_OPTS,MOM_ID))
     for _,why in ipairs(rejected) do log('Mod Options Menu refused: '..why) end
+    local applied=0
     if type(host.get)=='function' then
-        local applied=0
         for _,o in ipairs(MOM_OPTS) do
-            local v=host.get(MOM_ID..'.'..o.key)
-            local g=({percent='percent',red='red',blue='blue',green='green',
-                      charges_add='uses_add',charges_unlimited='uses_unlimited',
-                      eagle_charges_add='eagle_uses_add'})[o.key] or o.key
-            if v~=nil and not (type(cfg.explicit)=='table' and cfg.explicit[g]) then
-                if mom_apply(o.key,v) then applied=applied+1 end
+            local raw=host.get(MOM_ID..'.'..o.key)
+            if raw~=nil then
+                local v=mom_value(o,raw)
+                if v~=o.value then
+                    o.value=v
+                    if pcall(o.apply,v) then applied=applied+1 end
+                end
             end
         end
-        if applied>0 then
-            log(string.format('menu: applied %d saved setting(s); config.txt keys win',applied))
-            mom_rescan()
-        end
+    end
+    if applied>0 then
+        log(string.format('menu: applied %d saved setting(s)',applied))
+        mom_rescan_safe()
     end
 end
 
