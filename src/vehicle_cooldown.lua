@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.3.0',status='starting',errors=0}
+local M={version='3.4.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1489,7 +1489,7 @@ end
 
 local MOM_OPTS={
     {key='percent', kind='choice', label='冷却保留百分比 / Cooldown kept',
-     choices={'100%','95%','90%','85%','80%','75%','70%','65%','60%','55%','50%','45%','40%','35%','30%','25%','20%','15%','10%'},
+     choices={'100%','80%','50%'},
      value='80%',
      note='任何非整数百分比写在 config.txt（percent=65）。',
      apply=function(v)
@@ -1532,9 +1532,7 @@ local MOM_OPTS={
      note='哨戒、炮台、地雷/特斯拉/护盾 一起开关。',
      apply=function(v) cfg.green=(v==true or v=='true' or v=='on') end},
     {key='charges', kind='choice', label='次数增加 / Extra charges',
-     choices={'不添加 / None','+1','+2','+3','+4','+5','+6','+7','+8','+9','+10',
-              '+11','+12','+13','+14','+15','+16','+17','+18','+19','+20',
-              '无限制 / Unlimited'},
+     choices={'不添加 / None','+1','+2','+3','+4','+5','无限制 / Unlimited'},
      value='不添加 / None',
      note='有限次数战备；无限制在最右。自定义数量写在 config.txt（uses_add=7）。',
      apply=function(v)
@@ -1548,7 +1546,7 @@ local MOM_OPTS={
          end
      end},
     {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
-     choices={'不添加 / None','+1','+2','+3','+4','+5','+6','+7','+8','+9','+10'},
+     choices={'不添加 / None','+1','+2','+3'},
      value='不添加 / None',
      note='只作用于 EAGLE.*；自定义数量写 eagle_uses_add=。',
      apply=function(v)
