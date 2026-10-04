@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.0.0',status='starting',errors=0}
+local M={version='4.0.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1499,7 +1499,7 @@ end
 -- Every block with more than two states is therefore a choice whose value is an index.
 -- Exact numbers the list cannot express stay in config.txt (percent=65, uses_add=7).
 local MOM_ID='stratagem_cooldown'
-local mom={host=nil,last_try=-99,last_rescan=-999}
+local mom={host=nil,last_try=-99,last_rescan=-999,slider_owner=nil}
 
 local function mom_pct(v)
     local n=tonumber((tostring(v):gsub('%%','')))
@@ -1631,9 +1631,20 @@ local function mom_register(host)
         local ok,res,why=pcall(host.register_option,MOM_ID..'.'..o.key,spec)
         if ok and res then
             n=n+1
+            -- 4.0.1: several rows can write the same setting (the percentage exists as a
+            -- choice and as slider experiments); the first slider that registers owns it and
+            -- the others are ignored, so they can never fight each other.
+            if o.kind=='slider' and not mom.slider_owner then mom.slider_owner=o.key end
             pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
                 local v=mom_value(o,value)
                 o.value=v
+                local owned=(o.kind=='slider') and (mom.slider_owner==o.key)
+                            or (o.kind~='slider' and not mom.slider_owner)
+                if not owned then
+                    log('menu: '..o.key..' = '..tostring(v)..' (not applied: '..
+                        tostring(mom.slider_owner or 'the choice')..' owns this setting)')
+                    return
+                end
                 local fine,failure=pcall(o.apply,v)
                 if not fine then
                     log('menu: applying '..o.key..' failed: '..tostring(failure))
