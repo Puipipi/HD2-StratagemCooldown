@@ -56,6 +56,16 @@ def note(name, ok, detail=''):
     return ok
 
 
+
+def lua_table(d):
+    def one(v):
+        if isinstance(v, bool):
+            return 'true' if v else 'false'
+        if isinstance(v, (int, float)):
+            return str(v)
+        return "'" + str(v).replace('\\', '\\\\').replace("'", "\\'") + "'"
+    return '{' + ','.join('[%s]=%s' % (one(k), one(v)) for k, v in d.items()) + '}'
+
 def newest_zip():
     cands = glob.glob(os.path.join(MOD, 'dist', 'StratagemCooldown-*.zip'))
     if not cands:
@@ -238,6 +248,48 @@ def main():
     note('log says so when no manager database exists',
          'manager blocks: none deployed' in box.log_text() or 'manager DB' in box.log_text())
     box.cleanup()
+
+    print('\n--- 3d. in-game page (Mod Options Menu framework) ---')
+    FAKE_HOST = """
+    ModOptionsMenu = {
+      api = 1, registered = {}, saved = SAVED,
+      register_option = function(id, spec)
+          if type(id) ~= 'string' or type(spec) ~= 'table' then return false, 'bad args' end
+          if spec.type ~= 'toggle' and spec.type ~= 'slider' and spec.type ~= 'choice' then
+              return false, 'bad type' end
+          if spec.type == 'choice' and type(spec.choices) ~= 'table' then return false, 'no choices' end
+          ModOptionsMenu.registered[id] = spec
+          return true
+      end,
+      on_change = function(id, fn) ModOptionsMenu.handlers = ModOptionsMenu.handlers or {}
+          ModOptionsMenu.handlers[id] = fn end,
+      get = function(id) return ModOptionsMenu.saved[id] end,
+    }
+    """
+
+    def mom(saved, expect, config=None):
+        box = sandbox(core_global, config=config)
+        box.load()
+        box.rt.execute(FAKE_HOST.replace('SAVED', lua_table(saved)))
+        box.run_until(lambda: 'cooldown applied to' in box.log_text(), max_seconds=40.0)
+        ids = box.eval("(function() local n=0 for _ in pairs(ModOptionsMenu.registered) do n=n+1 end "
+                       "return n end)()")
+        got = {k: box.mem.cooldown(READ[k]) for k in expect}
+        ok = ids == 7 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
+        box.cleanup()
+        return ok, ids, got
+
+    ok, ids, got = mom({'stratagem_cooldown.percent': '50%', 'stratagem_cooldown.blue': 'all'},
+                       dict(tank=390.0, mech=210.0, laser=300.0))
+    note('menu after load: 7 options registered, saved values applied', ok,
+         '' if ok else 'ids=%s got=%s' % (ids, got))
+    ok, ids, got = mom({}, dict(tank=624.0, mech=420.0, laser=300.0))
+    note('menu: no saved values -> shipped defaults', ok, '' if ok else 'got=%s' % got)
+    ok, ids, got = mom({'stratagem_cooldown.percent': '50%'},
+                       dict(tank=624.0, mech=420.0, laser=300.0),
+                       config={'cooldown': 'yes', 'percent': 80, 'red': 'no', 'blue': 'vehicles',
+                               'green': 'no'})
+    note('menu: an explicit config.txt key is not overridden', ok, '' if ok else 'got=%s' % got)
 
     print('\n--- 4. builder -> config.txt -> addon (node) ---')
     node = shutil.which('node')
