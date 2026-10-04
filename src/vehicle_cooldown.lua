@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.11',status='starting',errors=0}
+local M={version='2.4.12',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1391,7 +1391,132 @@ local function cooldown_write(cfg)
     return true
 end
 
+
+--------------------------------------------------------------------------
+-- Optional in-game settings page: the "Mod Options Menu" framework (MOM), when
+-- that mod is installed. Contract as used by other mods:
+--   local host = rawget(_G,'ModOptionsMenu'); host.api == 1
+--   host.register_option(id, spec)  with spec.type = 'toggle' | 'slider' | 'choice'
+--   host.on_change(id, fn)          and  host.get(id)
+-- Registration is retried because addons load in either order. Values the menu
+-- saved last session are applied at startup unless config.txt pins that key, and
+-- clicking an option applies it immediately and re-scans.
+local MOM_ID='stratagem_cooldown'
+local mom={host=nil,last_try=-99}
+local MOM_OPTS={
+    {key='enabled',label='Mod enabled / 启用模组',kind='toggle',default=true},
+    {key='percent',label='Cooldown kept / 冷却保留',kind='choice',default='80%',
+     choices={'80%','50%'}},
+    {key='red',label='Red stratagems / 红战备',kind='choice',default='off',
+     choices={'off','orbital + eagle','orbital only','eagle only'}},
+    {key='blue',label='Blue stratagems / 蓝战备',kind='choice',default='vehicles',
+     choices={'vehicles','mechs','vehicles + mechs','all','off'}},
+    {key='green',label='Green stratagems / 绿战备',kind='toggle',default=false},
+    {key='charges',label='Charges / 次数',kind='choice',default='none',
+     choices={'none','+1','+2','+3','unlimited'}},
+    {key='eagle_charges',label='Eagle charges / 飞鹰次数',kind='choice',default='none',
+     choices={'none','+1','+2','+3'}},
+}
+
+local function mom_apply(key,value)
+    if key=='enabled' then
+        cfg.cooldown=(value==true or value=='on' or value=='true')
+    elseif key=='percent' then
+        local n=tonumber(tostring(value):match('(%d+)'))
+        if n then cfg.percent=n end
+    elseif key=='red' then
+        local v=tostring(value)
+        if v=='orbital + eagle' then cfg.red,cfg.orbital,cfg.eagle=true,true,true
+        elseif v=='orbital only' then cfg.red,cfg.orbital,cfg.eagle=true,true,false
+        elseif v=='eagle only' then cfg.red,cfg.orbital,cfg.eagle=true,false,true
+        else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
+    elseif key=='blue' then
+        local v=tostring(value)
+        if v=='vehicles' or v=='mechs' or v=='vehicles + mechs' or v=='all' then
+            cfg.blue=true
+            cfg.blue_scope=(v=='vehicles + mechs') and 'both' or v
+        else cfg.blue=false end
+    elseif key=='green' then
+        cfg.green=(value==true or value=='on' or value=='true')
+    elseif key=='charges' then
+        local v=tostring(value)
+        if v=='unlimited' then cfg.uses_unlimited=true cfg.uses_add=0
+        else cfg.uses_add=tonumber(v:match('(%d)')) or 0 cfg.uses_unlimited=false end
+    elseif key=='eagle_charges' then
+        cfg.eagle_uses_add=tonumber(tostring(value):match('(%d)')) or 0
+        cfg.eagle_uses_unlimited=false
+    else
+        return false
+    end
+    return true
+end
+
+-- a settings change must re-enumerate: the observe branch re-reads every record
+-- and re-patches from the vanilla values it cached on the first scan
+local function mom_rescan()
+    cd.targets=nil
+    cd.state='observe'
+    cd.next_scan=nil
+    cd.scan_note=nil
+    cd.stable_since=nil
+end
+
+local function mom_register(host)
+    mom.host=host
+    local n=0
+    for _,o in ipairs(MOM_OPTS) do
+        local spec={mod='Stratagem Cooldown',label=o.label,type=o.kind,default=o.default}
+        if o.kind=='choice' then spec.choices=o.choices end
+        local ok=host.register_option(MOM_ID..'.'..o.key,spec)
+        if ok then
+            n=n+1
+            local key=o.key
+            if type(host.on_change)=='function' then
+                host.on_change(MOM_ID..'.'..key,function(value)
+                    if type(cfg.explicit)=='table' and cfg.explicit[key] then
+                        log('menu: '..key..' left alone, config.txt sets it explicitly')
+                        return
+                    end
+                    if mom_apply(key,value) then
+                        mom_rescan()
+                        log(string.format('menu: %s=%s - re-scanning',key,tostring(value)))
+                    end
+                end)
+            end
+        end
+    end
+    log(string.format('Mod Options Menu found: %d/%d settings registered on its %s page',
+        n,#MOM_OPTS,MOM_ID))
+    if type(host.get)=='function' then
+        local applied=0
+        for _,o in ipairs(MOM_OPTS) do
+            local v=host.get(MOM_ID..'.'..o.key)
+            if v~=nil and not (type(cfg.explicit)=='table' and cfg.explicit[o.key]) then
+                if mom_apply(o.key,v) then applied=applied+1 end
+            end
+        end
+        if applied>0 then
+            log(string.format('menu: applied %d saved setting(s); config.txt keys win',applied))
+            mom_rescan()
+        end
+    end
+end
+
+local function mom_tick(now)
+    if mom.host then return end
+    if (now or 0)-(mom.last_try or -99)<1 then return end
+    mom.last_try=now
+    local host=rawget(_G,'ModOptionsMenu')
+    if type(host)~='table' or host.api~=1 or type(host.register_option)~='function' then return end
+    local ok,err=pcall(mom_register,host)
+    if not ok then
+        mom.host=nil
+        log('Mod Options Menu registration failed: '..tostring(err))
+    end
+end
+
 local function tick_cooldown()
+    pcall(mom_tick,os.clock())
     if not cfg.cooldown then
         if cd.state~='disabled' then
             cd.state='disabled'; cd.disabled_reason='config off'
