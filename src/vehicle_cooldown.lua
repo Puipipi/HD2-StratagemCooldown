@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.8.0',status='starting',errors=0}
+local M={version='4.0.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1564,6 +1564,18 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
+    {key='percent_slider', kind='slider', type='slider', label='冷却百分比（滑条实验）',
+     min=10, max=100, step=5, value=80,
+     note='实验项：如果框架支持滑条，这里会是一条可拖动的滑块。',
+     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
+    {key='percent_number', kind='slider', type='number', label='冷却百分比（数字实验）',
+     min=10, max=100, step=5, value=80,
+     note='实验项：type=number。',
+     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
+    {key='percent_int', kind='slider', type='int', label='冷却百分比（整数实验）',
+     min=10, max=100, step=5, value=80,
+     note='实验项：type=int。',
+     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
     {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
@@ -1587,6 +1599,7 @@ end
 
 local function mom_value(o,raw)
     if o.kind=='toggle' then return raw==true or raw=='true' end
+    if o.kind=='slider' then return tonumber(raw) end
     local i=tonumber(raw) or 1
     return (o.choices and o.choices[i]) or (o.choices and o.choices[1])
 end
@@ -1604,6 +1617,13 @@ local function mom_register(host)
                     description=o.note or o.label,type=o.kind}
         if o.kind=='toggle' then
             spec.default=(o.value==true)
+        elseif o.kind=='slider' then
+            -- 4.0.0 experiment: the framework is asked for a real slider here.
+            spec.type=o.type or 'slider'
+            spec.min=o.min or 10
+            spec.max=o.max or 100
+            spec.step=o.step or 5
+            spec.default=tonumber(o.value) or 80
         else
             spec.choices=o.choices
             spec.default=mom_index(o)
