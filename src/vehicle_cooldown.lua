@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.7.1',status='starting',errors=0}
+local M={version='2.8.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -996,8 +996,59 @@ do
     end
 end
 
+
+-- 2.8.0: the manager blocks deploy one tiny marker addon per group (see the
+-- Options/<group>/<choice> folders). Each writes opt_<axis>.txt; this reads them
+-- so the choice survives on managers that keep no database of their own.
+local GROUP_MARKERS={red='red',blue='blue',green='green',cooldown='percent',
+                     charges='uses_add',eagle='eagle_uses_add'}
+local function apply_group_markers()
+    local seen=0
+    for axis,cfgkey in pairs(GROUP_MARKERS) do
+        local f=io.open(OPT_DIR..'opt_'..axis..'.txt','r')
+        if f then
+            local line=f:read('*l') or ''
+            f:close()
+            local value=line:match('^(%S+)')
+            local ts=tonumber(line:match('(%d+)$'))
+            local age=ts and (os.time()-ts) or nil
+            if value and value~='' and (not age or age<=86400) then
+                if axis=='red' then
+                    if value=='both' then cfg.red,cfg.orbital,cfg.eagle=true,true,true
+                    elseif value=='orbital' then cfg.red,cfg.orbital,cfg.eagle=true,true,false
+                    elseif value=='eagle' then cfg.red,cfg.orbital,cfg.eagle=true,false,true
+                    else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
+                elseif axis=='blue' then
+                    if value=='off' then cfg.blue=false
+                    else cfg.blue=true cfg.blue_scope=value end
+                elseif axis=='green' then
+                    cfg.green=(value=='on')
+                elseif axis=='cooldown' then
+                    local n=tonumber(value)
+                    if n then cfg.percent=n end
+                elseif axis=='charges' then
+                    if value=='unlimited' then cfg.uses_unlimited=true cfg.uses_add=0
+                    elseif value=='none' then cfg.uses_unlimited=false cfg.uses_add=0
+                    else local n=tonumber(value) if n then cfg.uses_add=n cfg.uses_unlimited=false end end
+                elseif axis=='eagle' then
+                    local n=tonumber(value)
+                    if n then cfg.eagle_uses_add=n cfg.eagle_uses_unlimited=false
+                    elseif value=='none' then cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false end
+                end
+                seen=seen+1
+            end
+        end
+    end
+    return seen
+end
+
 local function read_markers(now)
     if cfg.markers_done then return true end
+    local group_seen=apply_group_markers()
+    if group_seen>0 and not cfg.group_markers_logged then
+        cfg.group_markers_logged=true
+        log(string.format('manager blocks: %d marker(s) merged',group_seen))
+    end
     local fresh,fresh_names={},{}
     for _,name in ipairs({'opt_red','opt_blue','opt_green','opt_uses'}) do
         local f=io.open(OPT_DIR..name..'.txt','r')
