@@ -164,8 +164,11 @@ def main():
     print('--- 1. package shape ---')
     man = json.loads(zf.read('manifest.json').decode('utf-8'))
     opts = man.get('Options') or []
-    note('one option with Include ["Addon"]',
-         len(opts) == 1 and opts[0].get('Include') == ['Addon'], repr(opts)[:90])
+    note('six option blocks with UI-only entries',
+         len(opts) == 6 and sum(len(o.get('SubOptions') or []) for o in opts) == 22,
+         '%d blocks / %d entries' % (len(opts), sum(len(o.get('SubOptions') or []) for o in opts)))
+    note('every block carries an outer tick and its range choice',
+         all(len(o.get('SubOptions') or []) >= 2 for o in opts))
     note('payload at the package root', PAYLOAD in names)
     note('no nested Addon/manifest.json', not any(n.endswith('Addon/manifest.json') for n in names))
     note('no Arsenal-only Options/ tree', not any(n.startswith('Options/') for n in names))
@@ -277,6 +280,70 @@ def main():
          'manager blocks: none deployed' in box.log_text() or 'manager DB' in box.log_text())
     box.cleanup()
 
+    print('\n--- 3c2. the manager blocks drive the mod (database built from the manifest) ---')
+    W2 = WORLD + [{'id': 66, 'name': 'SENTRYS. GATLING', 'cooldown': 150.0, 'uses': -1},
+                  {'id': 9, 'name': 'EMPLACEMENTS. ANTI TANK EMPLACEMENT', 'cooldown': 180.0, 'uses': -1}]
+    blocks = {}
+    for g in opts:
+        blocks[g['Name'].split(' / ')[0]] = g
+
+    def pick(block, needle):
+        for so in blocks[block]['SubOptions']:
+            if needle in so['Name']:
+                return so['Name']
+        return None
+
+    def mgr_db(picks, all_ticked=False):
+        options = []
+        for g in opts:
+            subs = [{'name': so['Name'],
+                     'enabled': True if all_ticked else (so['Name'] == picks.get(g['Name']))}
+                    for so in (g.get('SubOptions') or [])]
+            options.append({'name': g['Name'], 'enabled': True, 'suboptions': subs})
+        p = os.path.join(tempfile.gettempdir(), 'vc_mgr_db.json')
+        io.open(p, 'w', encoding='utf-8').write(json.dumps(
+            {'modsList': {'default': {'mods': [{'label': man.get('Name'), 'options': options}]}}},
+            ensure_ascii=False))
+        return p
+
+    def mgr(label, picks, expect, all_ticked=False):
+        box = Sandbox(core_global, records=W2,
+                      config={'uptime_s': 5, 'stable_s': 1,
+                              'manager_db': mgr_db(picks, all_ticked).replace('\\', '/')})
+        clear_markers(box)
+        box.load()
+        box.run_until(lambda: 'cooldown applied to' in box.log_text(), max_seconds=40.0)
+        got = {'tank': box.mem.cooldown(1), 'frv': box.mem.cooldown(105),
+               'mech': box.mem.cooldown(27), 'mine': box.mem.cooldown(12),
+               'rearm': box.mem.cooldown(49), 'sentry': box.mem.cooldown(66),
+               'empl': box.mem.cooldown(9), 'mech_uses': box.mem.uses(27)}
+        ok = all(abs(got[k] - v) < 0.01 for k, v in expect.items())
+        box.cleanup()
+        return ok, got
+
+    ok, got = mgr('manager: Arsenal import default (everything ticked)', {},
+                  dict(tank=624.0, frv=384.0, mech=420.0, mine=120.0, rearm=150.0), all_ticked=True)
+    note('manager: import default -> conservative config', ok, '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: red+blue+green picks at 50%',
+                  {blocks['红战备']['Name']: pick('红战备', '轨道 + 飞鹰'),
+                   blocks['蓝战备']['Name']: pick('蓝战备', '全部'),
+                   blocks['绿战备']['Name']: pick('绿战备', '开启'),
+                   blocks['冷却时间']['Name']: pick('冷却时间', '50%')},
+                  dict(tank=390.0, frv=240.0, mech=210.0, mine=60.0, sentry=75.0, empl=90.0,
+                       rearm=75.0))
+    note('manager: red/blue/green/cooldown picks', ok, '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: green off leaves its family alone',
+                  {blocks['绿战备']['Name']: pick('绿战备', '关闭'),
+                   blocks['冷却时间']['Name']: pick('冷却时间', '50%')},
+                  dict(sentry=150.0, empl=180.0, mine=120.0))
+    note('manager: green off', ok, '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: blue=all with charges +2',
+                  {blocks['蓝战备']['Name']: pick('蓝战备', '全部'),
+                   blocks['次数增加']['Name']: pick('次数增加', '+2'),
+                   blocks['冷却时间']['Name']: pick('冷却时间', '80%')},
+                  dict(mech_uses=5, tank=624.0))
+    note('manager: charge choice lands', ok, '' if ok else 'got %s' % got)
+
     print('\n--- 3d. in-game page (Mod Options Menu framework) ---')
     FAKE_HOST = """
     ModOptionsMenu = {
@@ -302,18 +369,18 @@ def main():
         box.rt.execute(FAKE_HOST.replace('SAVED', lua_table(saved)))
         count_src = ("(function() local n=0 for _ in pairs(ModOptionsMenu.registered or {}) "
                      "do n=n+1 end return n end)()")
-        box.run_until(lambda: (box.eval(count_src) or 0) == 11, max_seconds=30.0)
+        box.run_until(lambda: (box.eval(count_src) or 0) == 7, max_seconds=30.0)
         ids = box.eval(count_src) or 0
         base = box.eval('frames') or 0
         box.run_until(lambda: (box.eval('frames') or 0) > base + 900, max_seconds=25.0)
         got = {k: box.mem.cooldown(READ[k]) for k in expect}
-        ok = ids == 11 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
+        ok = ids == 7 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
         box.cleanup()
         return ok, ids, got
 
     ok, ids, got = mom({'stratagem_cooldown.percent': 50, 'stratagem_cooldown.blue': 'all'},
                        dict(tank=390.0, mech=210.0, laser=300.0))
-    note('menu after load: 11 options registered, saved values applied', ok,
+    note('menu after load: 7 options registered, saved values applied', ok,
          '' if ok else 'ids=%s got=%s' % (ids, got))
     ok, ids, got = mom({}, dict(tank=624.0, mech=420.0, laser=300.0))
     note('menu: no saved values -> shipped defaults', ok, '' if ok else 'got=%s' % got)
