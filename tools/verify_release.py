@@ -224,11 +224,11 @@ def main():
 
     print('\n--- 3a2. free numbers ---')
     behaviour('percent=65 (free percentage)',
-              dict(tank=507.0, frv=480.0, mech=420.0),      # mech is not in blue=vehicles
+              dict(tank=507.0, frv=312.0, mech=420.0),      # FRV is a vehicle (in scope), mech is not
               config={'cooldown': 'yes', 'percent': 65, 'red': 'no', 'blue': 'vehicles', 'green': 'no'})
-    behaviour('percent=25', dict(tank=195.0, frv=480.0, mech=420.0),
+    behaviour('percent=25', dict(tank=195.0, frv=120.0, mech=420.0),
               config={'cooldown': 'yes', 'percent': 25, 'red': 'no', 'blue': 'vehicles', 'green': 'no'})
-    behaviour('uses_add=7 (free charges)', dict(tank=780.0, mech=210.0),
+    behaviour('uses_add=7 (free charges)', dict(tank=390.0, mech=210.0),
               config={'cooldown': 'yes', 'percent': 50, 'red': 'no', 'blue': 'all', 'green': 'no',
                       'uses_add': 7})
     box = sandbox(core_global, config={'cooldown': 'yes', 'percent': 100, 'red': 'no', 'blue': 'all',
@@ -336,6 +336,7 @@ const fs = require('fs');
 const html = fs.readFileSync(process.argv[2], 'utf8');
 const body = html.match(/<script>([\\s\\S]*?)<\\/script>/)[1];
 const values = JSON.parse(process.argv[3]);
+const elements = JSON.parse(process.argv[4] || '{}');
 const doc = {
   querySelector: function (sel) {
     const m = sel.match(/name="([^"]+)"/); const k = m ? m[1] : null;
@@ -343,41 +344,50 @@ const doc = {
     return { value: k ? values[k] : '' };
   },
   querySelectorAll: function () { return []; },
-  getElementById: function () { return { value: '', textContent: '', select: function () {} }; },
+  getElementById: function (id) {
+    return { value: elements[id] === undefined ? '' : String(elements[id]),
+             checked: elements[id + '_checked'] === true,
+             textContent: '', select: function () {} };
+  },
 };
 process.stdout.write(new Function('document', body + '\\nreturn gen();')(doc));
 """)
 
-        def gen(sel):
+        def gen(sel, elements=None):
             r = subprocess.run([node, os.path.join(tmp, 'runner.js'), os.path.join(tmp, 'builder.html'),
-                                json.dumps(sel)], capture_output=True, text=True, encoding='utf-8')
+                                json.dumps(sel), json.dumps(elements or {})],
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
             if r.returncode != 0:
                 raise RuntimeError(r.stderr[:200])
             return r.stdout
 
         cases = [
-            ('builder default', {'cd': '80', 'red': 'off', 'blue': 'vehicles', 'green': 'off',
-                                 'ch': '0', 'eg': '0'},
+            ('builder default (80 / vehicles / +0)', {'red': 'off', 'blue': 'vehicles', 'green': 'off'},
+             {'cdnum': 80, 'chnum': 0, 'egnum': 0},
              dict(tank=624.0, frv=384.0, mech=420.0, mine=120.0), 'blue=yes'),
-            ('builder everything at 50%', {'cd': '50', 'red': 'both', 'blue': 'all', 'green': 'on',
-                                           'ch': 'unlimited', 'eg': '2'},
-             dict(tank=390.0, frv=240.0, mech=210.0, mine=60.0, rearm=75.0), None),
-            ('builder orbital only', {'cd': '80', 'red': 'orbital', 'blue': 'off', 'green': 'off',
-                                      'ch': '0', 'eg': '0'},
+            ('builder everything: 50%, all, +7, unlimited off',
+             {'red': 'both', 'blue': 'all', 'green': 'on'},
+             {'cdnum': 50, 'chnum': 7, 'egnum': 2},
+             dict(tank=390.0, frv=240.0, mech=210.0, mine=60.0, rearm=75.0), 'uses_add=7'),
+            ('builder 65% free percentage', {'red': 'off', 'blue': 'vehicles', 'green': 'off'},
+             {'cdnum': 65, 'chnum': 0, 'egnum': 0},
+             dict(tank=507.0, frv=312.0, mech=420.0), 'percent=65'),
+            ('builder orbital only', {'red': 'orbital', 'blue': 'off', 'green': 'off'},
+             {'cdnum': 80, 'chnum': 0, 'egnum': 0},
              dict(laser=240.0, rearm=150.0, tank=780.0), 'eagle=no'),
-            ('builder eagle only', {'cd': '80', 'red': 'eagle', 'blue': 'off', 'green': 'off',
-                                    'ch': '0', 'eg': '0'},
+            ('builder eagle only', {'red': 'eagle', 'blue': 'off', 'green': 'off'},
+             {'cdnum': 80, 'chnum': 0, 'egnum': 0},
              dict(laser=300.0, rearm=120.0, tank=780.0), 'orbital=no'),
-            ('builder mechs only +3', {'cd': '80', 'red': 'off', 'blue': 'mechs', 'green': 'off',
-                                       'ch': '3', 'eg': '0'},
+            ('builder mechs only +3', {'red': 'off', 'blue': 'mechs', 'green': 'off'},
+             {'cdnum': 80, 'chnum': 3, 'egnum': 0},
              dict(tank=780.0, frv=480.0, mech=336.0, mine=120.0), 'blue_scope=mechs'),
-            ('builder defensive (bogus blue)', {'cd': '80', 'red': 'off', 'blue': 'banana',
-                                                'green': 'off', 'ch': '0', 'eg': '0'},
+            ('builder defensive (bogus blue)', {'red': 'off', 'blue': 'banana', 'green': 'off'},
+             {'cdnum': 80, 'chnum': 0, 'egnum': 0},
              dict(tank=780.0, frv=480.0, mine=120.0), 'blue=no'),
         ]
-        for label, sel, expect, needle in cases:
+        for label, sel, elements, expect, needle in cases:
             try:
-                text = gen(sel)
+                text = gen(sel, elements)
             except Exception as exc:
                 note(label, False, 'node: %s' % exc)
                 continue
