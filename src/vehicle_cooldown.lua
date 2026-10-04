@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.8',status='starting',errors=0}
+local M={version='2.9.9',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1573,15 +1573,43 @@ end
 local function mom_register(host)
     mom.host=host
     local n=0
+    -- 2.9.9: which spelling the framework wants is not documented anywhere I can
+    -- read, and only 'toggle' ever registered. So try an ordered list of plausible
+    -- definitions per option and keep the first one it accepts; every refusal is
+    -- logged with the reason so the log names the rule outright.
+    local function mom_candidates(o)
+        local base={mod='Stratagem Cooldown',label=o.label,description=o.label,
+                    default=o.default}
+        local out={}
+        if o.kind=='toggle' then
+            local a={} for k,v in pairs(base) do a[k]=v end
+            a.type='toggle' out[#out+1]=a
+        elseif o.kind=='slider' then
+            for _,t in ipairs({'slider','number','int','range','integer'}) do
+                local a={} for k,v in pairs(base) do a[k]=v end
+                a.type=t a.min=o.min a.max=o.max a.step=o.step out[#out+1]=a
+            end
+        else
+            for _,t in ipairs({'choice','select','dropdown','enum','list','options'}) do
+                local a={} for k,v in pairs(base) do a[k]=v end
+                a.type=t a.choices=o.choices out[#out+1]=a
+                local b={} for k,v in pairs(a) do b[k]=v end
+                b.default=1 out[#out+1]=b                 -- index form
+                local c={} for k,v in pairs(a) do c[k]=v end
+                c.default=o.default c.choices=o.choices out[#out+1]=c
+            end
+        end
+        return out
+    end
     local rejected={}
     for _,o in ipairs(MOM_OPTS) do
-        -- every consumer passes a description; carry one too and keep the reason the
-        -- framework gives when it refuses a definition
-        local spec={mod='Stratagem Cooldown',label=o.label,description=o.label,
-                    type=o.kind,default=o.default}
-        if o.kind=='choice' then spec.choices=o.choices end
-        if o.kind=='slider' then spec.min=o.min spec.max=o.max spec.step=o.step end
-        local ok,why=host.register_option(MOM_ID..'.'..o.key,spec)
+        local ok,why=false,nil
+        for _,spec in ipairs(mom_candidates(o)) do
+            local tried,result,reason=pcall(host.register_option,MOM_ID..'.'..o.key,spec)
+            if tried and result then ok=true break end
+            why=string.format('type=%s default=%s -> %s',tostring(spec.type),
+                              tostring(spec.default),tostring(tried and reason or result))
+        end
         if not ok then
             rejected[#rejected+1]=string.format('%s (%s): %s',o.key,tostring(o.kind),tostring(why))
         end
