@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.5.0',status='starting',errors=0}
+local M={version='2.5.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1430,8 +1430,8 @@ local mom={host=nil,last_try=-99}
 -- so a player reading either language gets the same result
 local MOM_OPTS={
     {key='enabled',label='模组启用 / Mod enabled',kind='toggle',default=true},
-    {key='percent',label='冷却保留 / Cooldown kept',kind='choice',default='80%',
-     choices={'80%','50%'}},
+    {key='percent',label='冷却保留百分比 / Cooldown kept (%)',kind='slider',
+     default=80,min=10,max=100,step=5},
     {key='red',label='红战备 / Red stratagems',kind='choice',default='关闭 off',
      choices={'关闭 off','轨道+飞鹰 orbital + eagle','只轨道 orbital only','只飞鹰 eagle only'}},
     {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='就载具 vehicles',
@@ -1441,18 +1441,23 @@ local MOM_OPTS={
     {key='green_emplacements',label='  固定炮台 / Emplacements',kind='toggle',default=true},
     {key='green_others',label='  地雷/特斯拉/护盾 / Mines, Tesla, Shields',kind='toggle',
      default=true},
-    {key='charges',label='次数 / Charges',kind='choice',default='不添加 none',
-     choices={'不添加 none','+1','+2','+3','无限 unlimited'}},
-    {key='eagle_charges',label='飞鹰次数 / Eagle charges',kind='choice',default='不添加 none',
-     choices={'不添加 none','+1','+2','+3'}},
+    {key='charges_add',label='次数增加 / Extra charges',kind='slider',
+     default=0,min=0,max=20,step=1},
+    {key='charges_unlimited',label='取消次数上限 / Unlimited charges',kind='toggle',
+     default=false},
+    {key='eagle_charges_add',label='飞鹰次数增加 / Extra Eagle charges',kind='slider',
+     default=0,min=0,max=20,step=1},
 }
 
 local function mom_apply(key,value)
     if key=='enabled' then
         cfg.cooldown=(value==true or value=='on' or value=='true')
     elseif key=='percent' then
-        local n=tonumber(tostring(value):match('(%d+)'))
-        if n then cfg.percent=n end
+        local n=tonumber(tostring(value):match('(%d+%.?%d*)'))
+        if n then
+            if n<10 then n=10 elseif n>100 then n=100 end   -- a free number, kept sane
+            cfg.percent=n
+        end
     elseif key=='red' then
         local v=tostring(value)
         if v:find('orbital + eagle',1,true) or v:find('轨道+飞鹰',1,true) then
@@ -1477,13 +1482,27 @@ local function mom_apply(key,value)
         cfg.green=(value==true or value=='on' or value=='true')
     elseif key=='green_sentries' or key=='green_emplacements' or key=='green_others' then
         cfg[key]=(value==true or value=='on' or value=='true')
-    elseif key=='charges' then
+    elseif key=='charges_add' then
+        local n=tonumber(tostring(value):match('(%d+)')) or 0
+        if n<0 then n=0 elseif n>20 then n=20 end
+        cfg.uses_add=n
+    elseif key=='charges_unlimited' then
+        cfg.uses_unlimited=(value==true or value=='on' or value=='true')
+    elseif key=='charges' then                      -- legacy choice form still works
         local v=tostring(value)
         if v:find('unlimited',1,true) or v:find('无限',1,true) then
             cfg.uses_unlimited=true cfg.uses_add=0
-        else cfg.uses_add=tonumber(v:match('(%d)')) or 0 cfg.uses_unlimited=false end
-    elseif key=='eagle_charges' then
-        cfg.eagle_uses_add=tonumber(tostring(value):match('(%d)')) or 0
+        else
+            cfg.uses_add=tonumber(v:match('(%d+)')) or 0
+            cfg.uses_unlimited=false
+        end
+    elseif key=='eagle_charges_add' then
+        local n=tonumber(tostring(value):match('(%d+)')) or 0
+        if n<0 then n=0 elseif n>20 then n=20 end
+        cfg.eagle_uses_add=n
+        cfg.eagle_uses_unlimited=false
+    elseif key=='eagle_charges' then                -- legacy choice form still works
+        cfg.eagle_uses_add=tonumber(tostring(value):match('(%d+)')) or 0
         cfg.eagle_uses_unlimited=false
     else
         return false
@@ -1512,9 +1531,15 @@ local function mom_register(host)
             n=n+1
             local key=o.key
             if type(host.on_change)=='function' then
+                local guard=({percent='percent',red='red',blue='blue',green='green',
+                              green_sentries='green_sentries',green_emplacements='green_emplacements',
+                              green_others='green_others',charges_add='uses_add',
+                              charges_unlimited='uses_unlimited',
+                              eagle_charges_add='eagle_uses_add',
+                              enabled='cooldown'})[key] or key
                 host.on_change(MOM_ID..'.'..key,function(value)
-                    if type(cfg.explicit)=='table' and cfg.explicit[key] then
-                        log('menu: '..key..' left alone, config.txt sets it explicitly')
+                    if type(cfg.explicit)=='table' and cfg.explicit[guard] then
+                        log('menu: '..key..' left alone, config.txt sets '..guard..' explicitly')
                         return
                     end
                     if mom_apply(key,value) then
@@ -1531,7 +1556,12 @@ local function mom_register(host)
         local applied=0
         for _,o in ipairs(MOM_OPTS) do
             local v=host.get(MOM_ID..'.'..o.key)
-            if v~=nil and not (type(cfg.explicit)=='table' and cfg.explicit[o.key]) then
+            local g=({percent='percent',red='red',blue='blue',green='green',
+                      green_sentries='green_sentries',green_emplacements='green_emplacements',
+                      green_others='green_others',charges_add='uses_add',
+                      charges_unlimited='uses_unlimited',eagle_charges_add='eagle_uses_add',
+                      enabled='cooldown'})[o.key] or o.key
+            if v~=nil and not (type(cfg.explicit)=='table' and cfg.explicit[g]) then
                 if mom_apply(o.key,v) then applied=applied+1 end
             end
         end
@@ -1782,7 +1812,7 @@ return M
 -- config.txt
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
 --     cooldown=yes          总开关 / master switch
---     percent=80            冷却保留百分比：80 或 50
+--     percent=80            冷却保留百分比：任意数值（10-100），例如 65
 --     min_cooldown=60       低于该秒数的不改（保护飞鹰 15 秒投放、坦克 6 秒装填）
 --     red=no                off | yes（轨道+飞鹰）| both | orbital | eagle
 --     orbital=no            orbital= / eagle= 写在 red= 之后可细分到某一系
@@ -1791,9 +1821,9 @@ return M
 --     blue_scope=vehicles   与 blue=yes 搭配的等价写法
 --     green=no              哨戒 / 炮台 / 地雷 / 特斯拉 / 护盾发生器
 --     missions=no           任务类战备（增援 / 撤离）默认不动
---     uses_add=0            次数 +0/1/2/3（机甲、轨道激光等有限次数战备；飞鹰除外）
+--     uses_add=0            次数增加：任意整数（0-20），例如 7（有限次数战备；飞鹰除外）
 --     uses_unlimited=no     yes = 次数改为 -1（真无限）；飞鹰不受此项影响
---     eagle_uses_add=0      飞鹰专用 +0/1/2/3（飞鹰不要设无限：-1 会被当成“次数耗尽”）
+--     eagle_uses_add=0      飞鹰专用次数增加：任意整数（0-20），例如 3
 --     stable_s=1 / uptime_s=0 / probe=no    诊断用
 --   分节写法等价 / the sectioned form is equivalent:
 --     [cooldown] percent=80            [scope] red=both blue=all green=on
