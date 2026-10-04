@@ -18,6 +18,10 @@ import unittest
 import vc_sandbox
 from vc_sandbox import Sandbox, VANILLA, POISON, MAX_SANE
 
+# every test states the profile it expects instead of relying on the shipped default
+PROFILE = {'percent': 50, 'red': 'yes', 'blue': 'all', 'green': 'yes',
+           'missions': 'no', 'uptime_s': 5, 'stable_s': 1}
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = io.open(os.path.join(HERE, '..', 'src', 'vehicle_cooldown.lua'), encoding='utf-8').read()
 
@@ -34,7 +38,7 @@ def applied(box):
 
 class TestDormantPaths(unittest.TestCase):
     def test_no_ffi_leaves_the_chain_untouched(self):
-        box = Sandbox(SRC, ffi=False)
+        box = Sandbox(SRC, ffi=False, config=PROFILE)
         try:
             state = box.load()
             self.assertIn('dormant', str(state['status']))
@@ -43,14 +47,14 @@ class TestDormantPaths(unittest.TestCase):
             box.cleanup()
 
     def test_no_bingus_loader_is_dormant(self):
-        box = Sandbox(SRC, loader=False)
+        box = Sandbox(SRC, loader=False, config=PROFILE)
         try:
             self.assertIn('dormant', str(box.load()['status']))
         finally:
             box.cleanup()
 
     def test_unresolvable_game_module_stops_loudly(self):
-        box = Sandbox(SRC, module=False)
+        box = Sandbox(SRC, module=False, config=PROFILE)
         try:
             self.assertIn('locate failed', str(box.load()['status']))
             self.assertTrue(box.find('STOPPED at load'))
@@ -58,7 +62,7 @@ class TestDormantPaths(unittest.TestCase):
             box.cleanup()
 
     def test_missing_update_chain_is_dormant(self):
-        box = Sandbox(SRC, chain=False)
+        box = Sandbox(SRC, chain=False, config=PROFILE)
         try:
             status = str(box.load()['status'])
             self.assertIn('global update missing', status)
@@ -72,7 +76,7 @@ class TestBackdoorUnits(unittest.TestCase):
     def test_pointer_range_and_name_classifier(self):
         for runtime in CHAIN_RUNTIMES:
             with self.subTest(runtime=runtime):
-                box = Sandbox(SRC, runtime=runtime)
+                box = Sandbox(SRC, runtime=runtime, config=PROFILE)
                 try:
                     box.load_backdoor()
                     t = box.rt.globals()['HD2VehicleCooldownTest']
@@ -100,7 +104,7 @@ class TestBackdoorUnits(unittest.TestCase):
                     box.cleanup()
 
     def test_stability_gate_opens_after_the_window(self):
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.load_backdoor()
             # called exactly like the addon does it: method syntax
@@ -128,7 +132,7 @@ class TestScanRobustness(unittest.TestCase):
         nobody read, so slot_ptr() saw nil and every scan died instantly)."""
         for runtime in CHAIN_RUNTIMES:
             with self.subTest(runtime=runtime):
-                box = Sandbox(SRC, runtime=runtime)
+                box = Sandbox(SRC, runtime=runtime, config=PROFILE)
                 try:
                     box.load()
                     self.assertEqual(int(box.field('table_base')),
@@ -141,7 +145,7 @@ class TestScanRobustness(unittest.TestCase):
     def test_poison_slot_does_not_abort_the_scan(self):
         for runtime in CHAIN_RUNTIMES:
             with self.subTest(runtime=runtime):
-                box = Sandbox(SRC, runtime=runtime)   # slot id=2 carries name ptr -1
+                box = Sandbox(SRC, runtime=runtime, config=PROFILE)   # slot id=2 carries name ptr -1
                 try:
                     box.load()
                     self.assertTrue(box.run_until(lambda: applied(box)),
@@ -159,7 +163,7 @@ class TestScanRobustness(unittest.TestCase):
     def test_no_out_of_range_pointer_ever_reaches_the_ffi(self):
         for runtime in CHAIN_RUNTIMES:
             with self.subTest(runtime=runtime):
-                box = Sandbox(SRC, runtime=runtime)
+                box = Sandbox(SRC, runtime=runtime, config=PROFILE)
                 try:
                     box.load()
                     box.run_until(lambda: applied(box))
@@ -175,7 +179,7 @@ class TestScanRobustness(unittest.TestCase):
         hostile_id = 7
         records.append({'id': hostile_id, 'name': 'EXO-49 PATRIOT', 'cooldown': VANILLA})
         box = Sandbox(SRC, records=records,
-                      hostile=vc_sandbox.HEAP_BASE + hostile_id * vc_sandbox.RECORD_STRIDE)
+                      hostile=vc_sandbox.HEAP_BASE + hostile_id * vc_sandbox.RECORD_STRIDE, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)),
@@ -188,7 +192,7 @@ class TestScanRobustness(unittest.TestCase):
             box.cleanup()
 
     def test_empty_table_then_records_appear(self):
-        box = Sandbox(SRC, records=[], table_ids={})
+        box = Sandbox(SRC, records=[], table_ids={}, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: 'no vehicle records yet' in box.log_text(),
@@ -203,7 +207,7 @@ class TestScanRobustness(unittest.TestCase):
             box.cleanup()
 
     def test_re_resolve_is_bounded(self):
-        box = Sandbox(SRC, records=[], table_ids={})
+        box = Sandbox(SRC, records=[], table_ids={}, config=PROFILE)
         try:
             box.load()
             box.run_for(800.0, dt=0.2)
@@ -224,7 +228,7 @@ class TestPercentageMode(unittest.TestCase):
             {'id': 50, 'name': 'VEHICLES. STORM(TANK)', 'cooldown': 780.0},
             {'id': 3, 'name': 'MISSIONS. EXTRACTION BEACON', 'cooldown': 180.0},
         ]
-        box = Sandbox(SRC, records=records, config={'percent': 50})
+        box = Sandbox(SRC, records=records, config={'percent': 50, 'percent': 50, 'blue': 'all', 'red': 'yes', 'green': 'yes'})
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
@@ -241,7 +245,7 @@ class TestPercentageMode(unittest.TestCase):
 
     def test_percentage_is_taken_from_the_vanilla_value_not_the_patched_one(self):
         """A re-scan must not halve our own target again (780 -> 390 -> 195)."""
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)))
@@ -259,7 +263,7 @@ class TestOverhead(unittest.TestCase):
     """1.7.3: keep the measured per-session cost tiny and bounded."""
 
     def test_sweep_is_bounded_and_documented(self):
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
@@ -269,7 +273,7 @@ class TestOverhead(unittest.TestCase):
             box.cleanup()
 
     def test_copy_probe_is_off_by_default(self):
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
@@ -279,7 +283,7 @@ class TestOverhead(unittest.TestCase):
             box.cleanup()
 
     def test_copy_probe_still_available_on_request(self):
-        box = Sandbox(SRC, config={'probe': 'yes', 'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, config={'percent': 50, 'probe': 'yes', 'uptime_s': 5, 'stable_s': 1})
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)), box.log_text())
@@ -291,7 +295,7 @@ class TestOverhead(unittest.TestCase):
 
 class TestWriterStateMachine(unittest.TestCase):
     def test_watch_reapplies_after_an_engine_reset(self):
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)))
@@ -303,7 +307,7 @@ class TestWriterStateMachine(unittest.TestCase):
             box.cleanup()
 
     def test_failed_write_rolls_back_and_disables(self):
-        box = Sandbox(SRC, fail_writes=True)
+        box = Sandbox(SRC, fail_writes=True, config=PROFILE)
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: 'ABORTED' in box.log_text(), max_seconds=200.0))
@@ -314,7 +318,7 @@ class TestWriterStateMachine(unittest.TestCase):
             box.cleanup()
 
     def test_heartbeat_and_effective_config_are_published(self):
-        box = Sandbox(SRC, config={'uptime_s': 10, 'stable_s': 2})
+        box = Sandbox(SRC, config={'percent': 50, 'uptime_s': 10, 'stable_s': 2})
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: applied(box)))
@@ -340,7 +344,7 @@ class TestWriterStateMachine(unittest.TestCase):
             box.cleanup()
 
     def test_chain_passthrough_keeps_every_return_value(self):
-        box = Sandbox(SRC)
+        box = Sandbox(SRC, config=PROFILE)
         try:
             box.rt.execute("update = function() return 'a', nil, 'c' end")
             box.load()
@@ -369,7 +373,7 @@ class TestArchivedDeployedBuild(unittest.TestCase):
                      'table_base=tb_at_load locate_err=le_at_load')
 
     def test_deployed_1_5_1_stays_silent_and_the_error_is_the_nil_table_base(self):
-        box = Sandbox(self.DEPLOYED, capture_pcall=True)
+        box = Sandbox(self.DEPLOYED, capture_pcall=True, config=PROFILE)
         try:
             box.load()
             box.run_for(200.0)
@@ -398,7 +402,7 @@ class TestArchivedDeployedBuild(unittest.TestCase):
         self.assertIn(self.SHADOWING, self.DEPLOYED, 'fixture line moved')
         patched = self.DEPLOYED.replace(self.SHADOWING, self.SHADOWING_FIX, 1)
         records, _ = Sandbox.vehicle_world(poison=False)
-        box = Sandbox(patched, records=records, capture_pcall=True)
+        box = Sandbox(patched, records=records, capture_pcall=True, config=PROFILE)
         try:
             box.load()
             box.run_for(200.0)

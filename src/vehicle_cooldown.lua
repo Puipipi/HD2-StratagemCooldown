@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.10',status='starting',errors=0}
+local M={version='2.4.11',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1029,8 +1029,9 @@ local function read_markers(now)
         end
         log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
             (dbnote and dbnote~='') and dbnote or '(no picks recorded)', expl,
-            string.format('percent=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
-                tostring(cfg.percent),tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
+            string.format('percent=%s min_cooldown=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
+                tostring(cfg.percent),tostring(cfg.min_cooldown),
+                tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
                 tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),
                 tostring(cfg.uses_add),tostring(cfg.uses_unlimited))))
         return true

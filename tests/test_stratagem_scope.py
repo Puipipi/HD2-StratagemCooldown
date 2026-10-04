@@ -41,7 +41,7 @@ def run(box, seconds=40.0):
 class TestColourScope(unittest.TestCase):
     def test_red_only_touches_orbital_and_eagle(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'red': 'yes', 'blue': 'no', 'green': 'no',
+                      config={'percent': 50, 'red': 'yes', 'blue': 'no', 'green': 'no',
                               'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
@@ -58,7 +58,7 @@ class TestColourScope(unittest.TestCase):
 
     def test_orbital_and_eagle_can_be_switched_individually(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'red': 'yes', 'orbital': 'no', 'eagle': 'yes',
+                      config={'percent': 50, 'red': 'yes', 'orbital': 'no', 'eagle': 'yes',
                               'blue': 'no', 'green': 'no', 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
@@ -69,7 +69,7 @@ class TestColourScope(unittest.TestCase):
 
     def test_green_only_touches_sentries_and_emplacements(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'red': 'no', 'blue': 'no', 'green': 'yes',
+                      config={'percent': 50, 'red': 'no', 'blue': 'no', 'green': 'yes',
                               'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
@@ -81,14 +81,14 @@ class TestColourScope(unittest.TestCase):
             box.cleanup()
 
     def test_missions_are_off_by_default_and_can_be_enabled(self):
-        box = Sandbox(SRC, records=WORLD, config={'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(7), 180.0, places=3)
         finally:
             box.cleanup()
         box = Sandbox(SRC, records=WORLD,
-                      config={'missions': 'yes', 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'missions': 'yes', 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(7), 90.0, places=3)
@@ -99,7 +99,7 @@ class TestColourScope(unittest.TestCase):
 class TestBlueScope(unittest.TestCase):
     def helper(self, scope, expect):
         box = Sandbox(SRC, records=WORLD,
-                      config={'red': 'no', 'green': 'no', 'blue': 'yes',
+                      config={'percent': 50, 'red': 'no', 'green': 'no', 'blue': 'yes',
                               'blue_scope': scope, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
@@ -127,7 +127,7 @@ class TestCooldownPresets(unittest.TestCase):
     """1.9.1: the reduction choice is one of three presets."""
 
     def test_100_leaves_every_cooldown_alone(self):
-        box = Sandbox(SRC, records=WORLD, config={'percent': 100, 'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 100, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             for rid, want in ((1, 780.0), (18, 15.0), (107, 300.0), (49, 150.0)):
@@ -136,7 +136,8 @@ class TestCooldownPresets(unittest.TestCase):
             box.cleanup()
 
     def test_80_takes_a_fifth_off(self):
-        box = Sandbox(SRC, records=WORLD, config={'percent': 80, 'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD, config={'percent': 80, 'red': 'yes', 'blue': 'all', 'green': 'yes',
+                              'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(1), 624.0, places=3)     # 780 * 0.8
@@ -146,7 +147,7 @@ class TestCooldownPresets(unittest.TestCase):
             box.cleanup()
 
     def test_50_halves(self):
-        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 50, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)
@@ -155,7 +156,7 @@ class TestCooldownPresets(unittest.TestCase):
             box.cleanup()
 
     def test_an_unlisted_value_is_snapped_to_the_nearest_preset(self):
-        box = Sandbox(SRC, records=WORLD, config={'percent': 60, 'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 60, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertTrue(box.find('not one of 100/80/50'))
@@ -169,7 +170,7 @@ class TestCharges(unittest.TestCase):
 
     def test_uses_add_raises_finite_counts_only(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertEqual(box.mem.uses(18), 4)     # eagle airstrike 2 -> 4
@@ -184,7 +185,7 @@ class TestCharges(unittest.TestCase):
     def test_uses_add_one_and_three(self):
         for add, offset in ((1, 1), (3, 3)):
             box = Sandbox(SRC, records=WORLD,
-                          config={'uses_add': add, 'uptime_s': 5, 'stable_s': 1})
+                          config={'percent': 50, 'uses_add': add, 'uptime_s': 5, 'stable_s': 1})
             try:
                 run(box)
                 self.assertEqual(box.mem.uses(18), 2 + offset)
@@ -194,10 +195,11 @@ class TestCharges(unittest.TestCase):
 
     def test_uses_unlimited_removes_the_limit(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'uses_unlimited': 'yes', 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'uses_unlimited': 'yes', 'red': 'yes', 'blue': 'all',
+                              'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
-            self.assertEqual(box.mem.uses(18), -1)    # eagle 2 -> unlimited
+            self.assertEqual(box.mem.uses(18), 2)     # EAGLE keeps its count: -1 means 'spent'
             self.assertEqual(box.mem.uses(107), -1)   # orbital laser 3 -> unlimited
             self.assertEqual(box.mem.uses(27), -1)    # mech 3 -> unlimited
             self.assertEqual(box.mem.uses(1), -1)     # already unlimited
@@ -206,7 +208,7 @@ class TestCharges(unittest.TestCase):
 
     def test_charges_are_rolled_back_when_a_write_fails(self):
         box = Sandbox(SRC, records=WORLD, fail_writes=True,
-                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
         try:
             box.load()
             self.assertTrue(box.run_until(lambda: 'ABORTED' in box.log_text(), max_seconds=60.0))
@@ -220,7 +222,9 @@ class TestMinCooldownThreshold(unittest.TestCase):
     """1.9.2: +0x68 is only a cooldown when it is cooldown-sized."""
 
     def test_small_values_are_left_alone_and_reported(self):
-        box = Sandbox(SRC, records=WORLD, config={'uptime_s': 5, 'stable_s': 1})
+        box = Sandbox(SRC, records=WORLD,
+                      config={'percent': 50, 'red': 'yes', 'blue': 'all', 'green': 'yes',
+                              'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)   # eagle drop delay
@@ -230,7 +234,8 @@ class TestMinCooldownThreshold(unittest.TestCase):
 
     def test_min_cooldown_one_rescales_everything(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'min_cooldown': 1, 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'min_cooldown': 1, 'red': 'yes', 'blue': 'all',
+                              'green': 'yes', 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(18), 7.5, places=3)
@@ -241,7 +246,7 @@ class TestMinCooldownThreshold(unittest.TestCase):
 
     def test_charges_are_still_handled_for_timing_only_records(self):
         box = Sandbox(SRC, records=WORLD,
-                      config={'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
+                      config={'percent': 50, 'uses_add': 2, 'uptime_s': 5, 'stable_s': 1})
         try:
             run(box)
             self.assertAlmostEqual(box.mem.cooldown(18), 15.0, places=3)   # delay kept
