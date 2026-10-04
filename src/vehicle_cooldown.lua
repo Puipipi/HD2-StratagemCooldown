@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.2.0',status='starting',errors=0}
+local M={version='3.3.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1104,18 +1104,7 @@ local function read_markers(now)
             for _,k in ipairs(keys) do parts[#parts+1]=k..'='..tostring(vals[k]) end
             expl='config.txt: '..table.concat(parts,',')
         end
-        -- 3.2.0: 2.2.2 (the build the player says worked) predates the six colour blocks
-    -- and always applied its own profile; this build honours the manager, and the import
-    -- default leaves every block on 关闭 - which quietly means "change nothing".
-    if (not cfg.red) and (not cfg.blue) and (not cfg.green)
-       and (tonumber(cfg.uses_add) or 0)<=0 and not cfg.uses_unlimited
-       and not cfg.nothing_fallback then
-        cfg.nothing_fallback=true
-        cfg.blue=true cfg.blue_scope=cfg.blue_scope or 'vehicles'
-        if not cfg.percent then cfg.percent=80 end
-        log('every block resolved to off - falling back to the shipped profile: blue=vehicles, percent='..tostring(cfg.percent))
-    end
-    log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
+        log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
             (dbnote and dbnote~='') and dbnote or '(no picks recorded)', expl,
             string.format('percent=%s min_cooldown=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
                 tostring(cfg.percent),tostring(cfg.min_cooldown),
@@ -1500,7 +1489,7 @@ end
 
 local MOM_OPTS={
     {key='percent', kind='choice', label='冷却保留百分比 / Cooldown kept',
-     choices={'100%','90%','80%','70%','60%','50%','40%','30%','20%','10%'},
+     choices={'100%','95%','90%','85%','80%','75%','70%','65%','60%','55%','50%','45%','40%','35%','30%','25%','20%','15%','10%'},
      value='80%',
      note='任何非整数百分比写在 config.txt（percent=65）。',
      apply=function(v)
@@ -1524,8 +1513,8 @@ local MOM_OPTS={
      choices={'关闭 / Off','仅载具 / Vehicles only','仅机甲 / Mechs only',
               '仅载具和机甲 / Vehicles + Mechs','仅支援武器 / Support weapons only',
               '全部 / All'},
-     value='关闭 / Off',
-     note='蓝战备范围（互斥，选一项）。',
+     value='仅载具 / Vehicles only',
+     note='蓝战备范围（互斥，选一项）。出厂默认：仅载具。',
      apply=function(v)
          if v:find('全部',1,true) or v:find('all',1,true) then
              cfg.blue=true cfg.blue_scope='all'
@@ -1543,7 +1532,9 @@ local MOM_OPTS={
      note='哨戒、炮台、地雷/特斯拉/护盾 一起开关。',
      apply=function(v) cfg.green=(v==true or v=='true' or v=='on') end},
     {key='charges', kind='choice', label='次数增加 / Extra charges',
-     choices={'不添加 / None','+1','+2','+3','+4','+5','无限制 / Unlimited'},
+     choices={'不添加 / None','+1','+2','+3','+4','+5','+6','+7','+8','+9','+10',
+              '+11','+12','+13','+14','+15','+16','+17','+18','+19','+20',
+              '无限制 / Unlimited'},
      value='不添加 / None',
      note='有限次数战备；无限制在最右。自定义数量写在 config.txt（uses_add=7）。',
      apply=function(v)
@@ -1557,7 +1548,7 @@ local MOM_OPTS={
          end
      end},
     {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
-     choices={'不添加 / None','+1','+2','+3','+4','+5'},
+     choices={'不添加 / None','+1','+2','+3','+4','+5','+6','+7','+8','+9','+10'},
      value='不添加 / None',
      note='只作用于 EAGLE.*；自定义数量写 eagle_uses_add=。',
      apply=function(v)
