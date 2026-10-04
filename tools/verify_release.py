@@ -316,7 +316,11 @@ def main():
             subs = [{'name': so['Name'],
                      'enabled': True if all_ticked else (so['Name'] == picks.get(g['Name']))}
                     for so in (g.get('SubOptions') or [])]
-            options.append({'name': g['Name'], 'enabled': True, 'suboptions': subs})
+            # a block the player did not choose is unticked as a whole, which is what
+            # the manager does; the first entry only decides when it is ticked
+            options.append({'name': g['Name'],
+                            'enabled': True if all_ticked else (picks.get(g['Name']) is not None),
+                            'suboptions': subs})
         p = os.path.join(tempfile.gettempdir(), 'vc_mgr_db.json')
         io.open(p, 'w', encoding='utf-8').write(json.dumps(
             {'modsList': {'default': {'mods': [{'label': man.get('Name'), 'options': options}]}}},
