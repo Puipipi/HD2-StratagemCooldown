@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.5.8',status='starting',errors=0}
+local M={version='2.6.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -853,8 +853,23 @@ local function apply_manager_ticks()
     end
     if ticks.green and ticks.green.on then
         local n=ticks.green.pick or ''
-        if not (n:find('关闭',1,true) or n:find('off',1,true)) then
+        if n:find('关闭',1,true) or n:find('off',1,true) then
+            cfg.green=false
+        else
             cfg.green=true picks[#picks+1]='green=on'
+            -- the manager block also says which parts to touch
+            if n:find('只哨戒',1,true) or n:find('sentries only',1,true) then
+                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=true,false,false
+                picks[#picks+1]='green=sentries'
+            elseif n:find('只固定炮台',1,true) or n:find('emplacements only',1,true) then
+                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=false,true,false
+                picks[#picks+1]='green=emplacements'
+            elseif n:find('地雷',1,true) or n:find('mines',1,true) then
+                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=false,false,true
+                picks[#picks+1]='green=mines'
+            else
+                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=true,true,true
+            end
         end
     end
     if ticks.uses and ticks.uses.on and ticks.uses.pick then
