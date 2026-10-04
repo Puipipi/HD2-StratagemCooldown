@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.6.0',status='starting',errors=0}
+local M={version='3.7.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1468,6 +1468,21 @@ local function cooldown_write(cfg)
     return true
 end
 --------------------------------------------------------------------------
+-- 3.6.1: forward declaration - the menu handler below and the 10 s re-assert both need
+-- this, and while it was defined further down the name resolved to nil, so neither the
+-- periodic re-write nor an in-game change ever re-scanned (the values never applied).
+local mom_rescan
+function mom_rescan()
+    -- 3.7.0: this was lost in the 3.0.0 rewrite, so the menu handler and the periodic
+    -- re-assert called nothing at all. Dropping the remembered targets puts the addon
+    -- back into observation, which re-derives every record and re-applies the values.
+    if type(cd)=='table' then
+        cd.state='observe'
+        cd.targets={}
+    end
+    mom.last_rescan=0
+end
+--------------------------------------------------------------------------
 -- Optional in-game settings page: the "Mod Options Menu" framework (MOM).
 -- Contract taken from a working addon (ExoLoadout v0.8.0) instead of guessed:
 --   host = rawget(_G,'ModOptionsMenu');  host.api == 1
@@ -1573,8 +1588,7 @@ local function mom_value(o,raw)
 end
 
 local function mom_rescan_safe()
-    local f=mom_rescan
-    if type(f)=='function' then pcall(f) end
+    if type(mom_rescan)=='function' then pcall(mom_rescan) end
 end
 
 local function mom_register(host)
