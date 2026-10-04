@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.0.1',status='starting',errors=0}
+local M={version='4.1.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1507,9 +1507,9 @@ local function mom_pct(v)
 end
 
 local MOM_OPTS={
-    {key='percent', kind='choice', label='冷却保留百分比 / Cooldown kept',
-     choices={'100%','95%','90%','85%','80%','75%','70%','65%','60%','55%','50%','45%','40%','35%','30%','25%'},
-     value='80%',
+    {key='percent', kind='slider', type='slider', min=10, max=100, step=5,
+     label='冷却保留百分比 / Cooldown kept',
+     value=80,
      note='任何非整数百分比写在 config.txt（percent=65）。',
      apply=function(v)
          local n=mom_pct(v)
@@ -1564,18 +1564,6 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
-    {key='percent_slider', kind='slider', type='slider', label='冷却百分比（滑条实验）',
-     min=10, max=100, step=5, value=80,
-     note='实验项：如果框架支持滑条，这里会是一条可拖动的滑块。',
-     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
-    {key='percent_number', kind='slider', type='number', label='冷却百分比（数字实验）',
-     min=10, max=100, step=5, value=80,
-     note='实验项：type=number。',
-     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
-    {key='percent_int', kind='slider', type='int', label='冷却百分比（整数实验）',
-     min=10, max=100, step=5, value=80,
-     note='实验项：type=int。',
-     apply=function(v) local n=tonumber(v) if n then cfg.percent=n end end},
     {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
@@ -1612,6 +1600,7 @@ local function mom_register(host)
     mom.host=host
     local rejected={}
     local n=0
+    local percent_ok=false
     for _,o in ipairs(MOM_OPTS) do
         local spec={mod='战备冷却 / Stratagem Cooldown',label=o.label,
                     description=o.note or o.label,type=o.kind}
@@ -1635,6 +1624,7 @@ local function mom_register(host)
             -- choice and as slider experiments); the first slider that registers owns it and
             -- the others are ignored, so they can never fight each other.
             if o.kind=='slider' and not mom.slider_owner then mom.slider_owner=o.key end
+            if o.key=='percent' then percent_ok=true end
             pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
                 local v=mom_value(o,value)
                 o.value=v
@@ -1656,6 +1646,33 @@ local function mom_register(host)
         else
             rejected[#rejected+1]=string.format('%s (%s): %s',o.key,o.kind,
                                                 tostring(ok and why or res))
+        end
+    end
+    -- 4.1.0: if the framework will not take the slider, register the three-entry choice
+    -- under a fallback id so the cooldown percentage is always controllable. The owner rule
+    -- above keeps exactly one of them in charge.
+    if not percent_ok then
+        local fb={key='percent_fallback', kind='choice', label='冷却保留百分比 / Cooldown kept',
+                  choices={'100%','80%','50%'}, value='80%',
+                  note='滑条不可用时的备用选项。',
+                  apply=function(v) local p=mom_pct(v) if p then cfg.percent=p end end}
+        local spec={mod='战备冷却 / Stratagem Cooldown',label=fb.label,description=fb.note,
+                    type='choice',choices=fb.choices,default=mom_index(fb)}
+        local ok,res,why=pcall(host.register_option,MOM_ID..'.'..fb.key,spec)
+        if ok and res then
+            n=n+1
+            pcall(host.on_change,MOM_ID..'.'..fb.key,function(value)
+                local v=mom_value(fb,value)
+                fb.value=v
+                if mom.slider_owner then return end
+                if pcall(fb.apply,v) then
+                    log('menu: '..fb.key..' = '..tostring(v))
+                    mom_rescan_safe()
+                end
+            end)
+            log('menu: slider refused, the three-entry choice is in charge instead')
+        else
+            log('Mod Options Menu refused: '..fb.key..' (choice): '..tostring(ok and why or res))
         end
     end
     log(string.format('Mod Options Menu found: %d/%d settings registered on its %s page',
