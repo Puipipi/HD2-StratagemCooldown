@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.2',status='starting',errors=0}
+local M={version='2.9.3',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -825,12 +825,13 @@ local function apply_manager_ticks()
         local n=ticks.red.pick
         if n:find('关闭',1,true) or n:find('off',1,true) then
             cfg.red=false cfg.orbital=false cfg.eagle=false
-        elseif n:find('orbital + eagle',1,true) then
+        elseif n:find('全部',1,true) or n:find('all',1,true)
+            or n:find('orbital + eagle',1,true) then
             cfg.red=true cfg.orbital=true cfg.eagle=true picks[#picks+1]='red=both'
-        elseif n:find('orbital only',1,true) then
-            cfg.red=true cfg.orbital=true picks[#picks+1]='red=orbital'
-        elseif n:find('eagle only',1,true) then
-            cfg.red=true cfg.eagle=true picks[#picks+1]='red=eagle'
+        elseif n:find('轨道',1,true) or n:find('orbital',1,true) then
+            cfg.red=true cfg.orbital=true cfg.eagle=false picks[#picks+1]='red=orbital'
+        elseif n:find('飞鹰',1,true) or n:find('eagle',1,true) then
+            cfg.red=true cfg.orbital=false cfg.eagle=true picks[#picks+1]='red=eagle'
         end
     end
     if ticks.blue and ticks.blue.on and ticks.blue.pick then
