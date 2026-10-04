@@ -170,3 +170,15 @@ python -B tools/analyze_vehicle_cooldown_log.py
 20 offline checks pass, including two that load the byte-exact deployed 1.5.1
 text and reproduce its silent failure. Offline checks are not game acceptance:
 no mission has been run with 1.6.0, and no in-game effect is claimed.
+
+## 复验 / Verify a release
+
+    python tools/verify_release.py             # 检查 dist/ 里最新的包
+    python tools/verify_release.py --zip dist/StratagemCooldown-X.zip
+    python tools/verify_release.py --no-node   # 跳过需要 node 的生成器端到端
+
+脚本把出货包解出来当作被测对象，检查：包结构（单个 Include ["Addon"] 选项、payload 在根 Addon/、
+无嵌套 manifest、无 Options/ 树、README/builder/preview 齐全、根 manifest 有 IconPath）、payload
+（LuaJIT 可编译、无 os.execute / io.popen）、行为（7 组平铺键 + 6 组分节 INI）、日志与管理器读取
+（用合成数据库验证“读管理器勾选”这条路径，不动玩家真实数据）、以及用 node 真跑
+`config-builder.html` 的 JS 再把生成文本喂回模组（6 组）。全部通过时退出码为 0（当前 33 项）。
