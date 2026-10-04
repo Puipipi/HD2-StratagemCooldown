@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.2.2',status='starting',errors=0}
+local M={version='2.3.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -125,6 +125,19 @@ rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
 local LOG=HOME..'Logs/VehicleCooldown.log'
+
+-- 2.3.0: the config and log directories are created with kernel32 directly, so a
+-- blank machine gets a working log and no cmd.exe is ever spawned (the old
+-- os.execute('mkdir ...') popped a console window).
+do
+    local ok,err=pcall(function()
+        ffi.cdef[[ int CreateDirectoryA(const char *path, void *sa); ]]
+        ffi.C.CreateDirectoryA(HOME:gsub('/','\\'), nil)
+        ffi.C.CreateDirectoryA((HOME..'Logs'):gsub('/','\\'), nil)
+        ffi.C.CreateDirectoryA((HOME..'VehicleCooldown'):gsub('/','\\'), nil)
+    end)
+end
+
 local CFG=HOME..'VehicleCooldown/config.txt'
 local function log(s)
     M.status=s
@@ -147,11 +160,11 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,percent=50,min_cooldown=60,uses_add=0,uses_unlimited=false,
+    local d={cooldown=true,percent=80,min_cooldown=60,uses_add=0,uses_unlimited=false,
              stable_s=1,uptime_s=0,probe=false,
-             red=true,orbital=true,eagle=true,
-             blue=true,blue_scope='all',
-             green=true,missions=false}
+             red=false,orbital=false,eagle=false,
+             blue=true,blue_scope='vehicles',
+             green=false,missions=false}
     if type(BAKED)=='table' then
         for k,v in pairs(BAKED) do d[k]=v end
     end
@@ -161,7 +174,6 @@ local function conf()
     end)
     if not ok or not text then
         pcall(function()
-            os.execute('mkdir "'..HOME:gsub('/','\\')..'VehicleCooldown" 2>nul')
             local w=io.open(CFG,'w')
             if w then
                 w:write('cooldown=yes\npercent=50\nmin_cooldown=60\nuses_add=0\nuses_unlimited=no\n')
