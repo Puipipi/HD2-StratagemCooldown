@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.7',status='starting',errors=0}
+local M={version='2.9.8',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1573,10 +1573,18 @@ end
 local function mom_register(host)
     mom.host=host
     local n=0
+    local rejected={}
     for _,o in ipairs(MOM_OPTS) do
-        local spec={mod='Stratagem Cooldown',label=o.label,type=o.kind,default=o.default}
+        -- every consumer passes a description; carry one too and keep the reason the
+        -- framework gives when it refuses a definition
+        local spec={mod='Stratagem Cooldown',label=o.label,description=o.label,
+                    type=o.kind,default=o.default}
         if o.kind=='choice' then spec.choices=o.choices end
-        local ok=host.register_option(MOM_ID..'.'..o.key,spec)
+        if o.kind=='slider' then spec.min=o.min spec.max=o.max spec.step=o.step end
+        local ok,why=host.register_option(MOM_ID..'.'..o.key,spec)
+        if not ok then
+            rejected[#rejected+1]=string.format('%s (%s): %s',o.key,tostring(o.kind),tostring(why))
+        end
         if ok then
             n=n+1
             local key=o.key
@@ -1599,6 +1607,7 @@ local function mom_register(host)
     end
     log(string.format('Mod Options Menu found: %d/%d settings registered on its %s page',
         n,#MOM_OPTS,MOM_ID))
+    for _,why in ipairs(rejected) do log('Mod Options Menu refused: '..why) end
     if type(host.get)=='function' then
         local applied=0
         for _,o in ipairs(MOM_OPTS) do
