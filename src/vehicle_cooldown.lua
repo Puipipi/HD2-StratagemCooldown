@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.9',status='starting',errors=0}
+local M={version='2.4.10',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1600,61 +1600,48 @@ log(string.format('v%s installed: all-stratagem cooldown, uptime gate %ss, stabl
 return M
 
 -- [guide:begin]
--- 战备冷却 / Stratagem Cooldown 2.2.0 - quick guide / 快速指南
+-- 战备冷却 / Stratagem Cooldown 2.4.10 - quick guide / 快速指南
 --
--- What it does / 作用
---   Shortens stratagem cooldowns by a percentage of each stratagem's OWN value
---   (default 50%) and can change how many charges a limited stratagem has.
---   按每条战备自己的原值乘以百分比缩短冷却（默认 50%），并可修改有限次数战备的次数。
+-- 开箱默认 / Out of the box
+--   不做任何设置时：只作用于载具（坦克、FRV），冷却保留 80%，红/绿/次数都不动。
+--   With no configuration at all: vehicles only (tanks, FRV) at 80%; red, green and
+--   the charge axis stay untouched.
 --
--- Layering / 两层设置
---   1) In the mod manager, pick one entry from the "Profile / 方案" group.
---      It ships as a complete build (all profiles share the same addon GUID, so
---      exactly one can ever be deployed).
---      在管理器里从“方案 / Profile”里选一个，方案是完整构建，共用同一个 GUID，
---      永远只会生效一个。
---   2) config.txt still wins for any key you leave uncommented - use it to
---      fine-tune whatever the chosen profile does not set.
---      config.txt 里“未注释”的键优先级最高，可用来微调。
+-- 怎么配置 / How to configure
+--   1) 用浏览器打开随包附带的 config-builder.html，勾选六块 → 复制生成的文本
+--   2) 粘贴进下面的 config.txt（未注释的键才生效）
+--   3) 重启游戏
+--   Arsenal 用户也可以在管理器里勾选（两者会合并，config.txt 里未注释的键优先）。
 --
--- Config / 配置（键都被注释掉时使用方案里的值）
+-- config.txt
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
---     percent=50             cooldown: 100 = unchanged, 80 = 20% shorter,
---                            50 = half (exactly these three)
---     min_cooldown=60        only rescale +0x68 values of at least this many
---                            seconds. Smaller values are strike/drop timings,
---                            not cooldowns (the Eagle entries' 15s, the tank 6s
---                            reload), and are left alone. Set 1 to rescale all.
---     uses_add=0             charges: 0 = unchanged, 1 / 2 / 3 = that many more
---                            charges on every limited stratagem
---     uses_unlimited=no      yes = remove the charge limit entirely (finite -> -1)
---     red=yes                red stratagems (offensive)
---     orbital=yes              - ORBITAL. series
---     eagle=yes                - EAGLE. series incl. EAGLE. REARM
---     blue=yes               blue stratagems (support equipment)
---     blue_scope=all           - vehicles | mechs | both | all
---     green=yes              green stratagems (sentries, emplacements)
---     missions=no            mission stratagems (reinforce/extraction/...) - off
---     stable_s=1             pointer-stability window before writing
---     uptime_s=0             write as soon as the records are valid
---     probe=no               opt-in diagnostic memory search
+--     cooldown=yes          总开关 / master switch
+--     percent=80            冷却保留百分比：80 或 50
+--     min_cooldown=60       低于该秒数的不改（保护飞鹰 15 秒投放、坦克 6 秒装填）
+--     red=no                off | yes（轨道+飞鹰）| both | orbital | eagle
+--     orbital=no            orbital= / eagle= 写在 red= 之后可细分到某一系
+--     eagle=no
+--     blue=vehicles         off | vehicles | mechs | both | all
+--     blue_scope=vehicles   与 blue=yes 搭配的等价写法
+--     green=no              哨戒 / 炮台 / 地雷 / 特斯拉 / 护盾发生器
+--     missions=no           任务类战备（增援 / 撤离）默认不动
+--     uses_add=0            次数 +0/1/2/3（机甲、轨道激光等有限次数战备；飞鹰除外）
+--     uses_unlimited=no     yes = 次数改为 -1（真无限）；飞鹰不受此项影响
+--     eagle_uses_add=0      飞鹰专用 +0/1/2/3（飞鹰不要设无限：-1 会被当成“次数耗尽”）
+--     stable_s=1 / uptime_s=0 / probe=no    诊断用
+--   分节写法等价 / the sectioned form is equivalent:
+--     [cooldown] percent=80            [scope] red=both blue=all green=on
+--     [charges] mode=none|+1|+2|+3|unlimited        [eagle] mode=none|+1|+2|+3
 --
--- Categories / 分类
---   red   : ORBITAL. and EAGLE. (EAGLE. REARM is the real Eagle cycle: Eagle
---           stratagems spend charges and one rearm restores them all, so its
---           cooldown is what paces the family)
---   blue  : TEAM WEAPONS. BACKPACK. CONSUMABLES., plus vehicles/mechs according
---           to blue_scope (VEHICLES. tanks and FRV = vehicles, VEHICLES.
---           COMBAT WALKER = mechs). blue_scope is mutually exclusive:
---             就载具=vehicles  就机甲=mechs  就载具和机甲=both  全部=all
---   green : SENTRYS. SENTRIES. EMPLACEMENTS.
---   Charges: Orbital Laser 3, mechs 3, Eagle 1..4; -1 means unlimited and is
---   never turned into a limit.
---   次数：激光轨道 3、机甲 3、飞鹰 1..4；-1 表示无限，不会被改成有限。
+-- 分类 / Categories
+--   red   : ORBITAL. 与 EAGLE.（EAGLE. REARM 决定飞鹰族的恢复节奏；-1 对飞鹰表示耗尽）
+--   blue  : TEAM WEAPONS. / BACKPACK. / CONSUMABLES. 以及 vehicles|mechs|both|all
+--   green : SENTRYS. / SENTRIES. / EMPLACEMENTS. / 地雷 / 特斯拉 / 护盾发生器
+--   次数  : 轨道激光 3、机甲 3、飞鹰 1..4；只有游戏本身就接受 -1 的战备才会写成无限
 --
--- Log / 日志
+-- 日志 / Log
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\Logs\VehicleCooldown.log
---   Healthy session: located -> installed -> mode=... -> records appeared ->
---   patched offsets -> cooldown applied -> heartbeat every 60s.
---   健康会话：定位 -> 安装 -> 模式 -> 发现记录 -> 写入偏移 -> 应用成功 -> 心跳。
+--   第二行打印解析结果：
+--     blocks(from manager DB): <勾选> | explicit: <config.txt 里生效的键> | effective: <最终生效>
+--   第三行 cooldown applied to … 列出真正写入的偏移与前后值。
 -- [guide:end]
