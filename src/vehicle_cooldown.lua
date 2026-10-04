@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.13',status='starting',errors=0}
+local M={version='2.5.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -188,6 +188,18 @@ local function conf()
         end)
         return d
     end
+    -- Chinese values are accepted too: map the words players actually type onto
+    -- the English tokens the parser below understands (longest match first).
+    do
+        local map={ {'就载具和机甲','both'}, {'载具和机甲','both'}, {'就载具','vehicles'},
+                    {'就机甲','mechs'}, {'载具','vehicles'}, {'机甲','mechs'},
+                    {'全部','all'}, {'所有','all'}, {'只轨道','orbital'}, {'只飞鹰','eagle'},
+                    {'轨道','orbital'}, {'飞鹰','eagle'}, {'排击','orbital'},
+                    {'开启','on'}, {'打开','on'}, {'关闭','off'}, {'不添加','none'},
+                    {'不变','none'}, {'不改','none'}, {'无限','unlimited'},
+                    {'无限制','unlimited'}, {'去除数量限制','unlimited'} }
+        for _,pair in ipairs(map) do text=text:gsub(pair[1],pair[2]) end
+    end
     -- SECTION ALIASES: [cooldown] [scope] [charges] [eagle] plus the old flat keys
     local section=''
     for line in text:gmatch('[^\r\n]+') do
@@ -237,7 +249,9 @@ local function conf()
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
-        for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited','eagle_uses_unlimited'}) do
+        for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited',
+                           'eagle_uses_unlimited','green_sentries','green_emplacements',
+                           'green_others'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
             if v then
                 local on=(v=='yes' or v=='true' or v=='on')
@@ -506,12 +520,13 @@ local function classify(name)
     if p=='ORBITAL' then return 'orbital' end
     if p=='EAGLE' then return 'eagle' end
     if p=='TEAM WEAPONS' or p=='BACKPACK' or p=='CONSUMABLES' then return 'support' end
-    if p=='SENTRYS' or p=='SENTRIES' or p=='EMPLACEMENTS' then return 'green' end
+    if p=='SENTRYS' or p=='SENTRIES' then return 'green_sentry' end
+    if p=='EMPLACEMENTS' then return 'green_emplacement' end
     if p=='VEHICLES' then return 'vehicle' end
     if p=='MISSIONS' or p=='MISSIONS CLAN STATION' then return 'mission' end
     if p=='PRESIDENT REWARDS' then
         if name:find('MACHINEGUN',1,true) or name:find('BACKPACK',1,true) then return 'support' end
-        if name:find('SENTRY',1,true) then return 'green' end
+        if name:find('SENTRY',1,true) then return 'green_sentry' end
         return 'other'
     end
     if p=='TANK' then return 'tank_action' end
@@ -530,7 +545,15 @@ local function in_scope(kind)
     if kind=='mech' then
         return cfg.blue==true and (scope=='mechs' or scope=='both' or scope=='all')
     end
-    if kind=='green'   then return cfg.green==true end
+    -- green parts default to on, so configs written before the split keep working
+    if kind=='green'   then return cfg.green==true and cfg.green_others~=false end
+    if kind=='green_sentry' then
+        return cfg.green==true and cfg.green_sentries~=false
+    end
+    if kind=='green_emplacement' then
+        return cfg.green==true and cfg.green_emplacements~=false
+    end
+    if kind=='green_other' then return cfg.green==true and cfg.green_others~=false end
     if kind=='mission' then return cfg.missions==true end
     return false
 end
@@ -1403,19 +1426,25 @@ end
 -- clicking an option applies it immediately and re-scans.
 local MOM_ID='stratagem_cooldown'
 local mom={host=nil,last_try=-99}
+-- labels and choice words carry both languages; the values are matched by keyword
+-- so a player reading either language gets the same result
 local MOM_OPTS={
-    {key='enabled',label='Mod enabled / 启用模组',kind='toggle',default=true},
-    {key='percent',label='Cooldown kept / 冷却保留',kind='choice',default='80%',
+    {key='enabled',label='模组启用 / Mod enabled',kind='toggle',default=true},
+    {key='percent',label='冷却保留 / Cooldown kept',kind='choice',default='80%',
      choices={'80%','50%'}},
-    {key='red',label='Red stratagems / 红战备',kind='choice',default='off',
-     choices={'off','orbital + eagle','orbital only','eagle only'}},
-    {key='blue',label='Blue stratagems / 蓝战备',kind='choice',default='vehicles',
-     choices={'vehicles','mechs','vehicles + mechs','all','off'}},
-    {key='green',label='Green stratagems / 绿战备',kind='toggle',default=false},
-    {key='charges',label='Charges / 次数',kind='choice',default='none',
-     choices={'none','+1','+2','+3','unlimited'}},
-    {key='eagle_charges',label='Eagle charges / 飞鹰次数',kind='choice',default='none',
-     choices={'none','+1','+2','+3'}},
+    {key='red',label='红战备 / Red stratagems',kind='choice',default='关闭 off',
+     choices={'关闭 off','轨道+飞鹰 orbital + eagle','只轨道 orbital only','只飞鹰 eagle only'}},
+    {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='就载具 vehicles',
+     choices={'就载具 vehicles','就机甲 mechs','载具+机甲 vehicles + mechs','全部 all','关闭 off'}},
+    {key='green',label='绿战备总开关 / Green stratagems',kind='toggle',default=false},
+    {key='green_sentries',label='  哨戒/机枪塔 / Sentries',kind='toggle',default=true},
+    {key='green_emplacements',label='  固定炮台 / Emplacements',kind='toggle',default=true},
+    {key='green_others',label='  地雷/特斯拉/护盾 / Mines, Tesla, Shields',kind='toggle',
+     default=true},
+    {key='charges',label='次数 / Charges',kind='choice',default='不添加 none',
+     choices={'不添加 none','+1','+2','+3','无限 unlimited'}},
+    {key='eagle_charges',label='飞鹰次数 / Eagle charges',kind='choice',default='不添加 none',
+     choices={'不添加 none','+1','+2','+3'}},
 }
 
 local function mom_apply(key,value)
@@ -1426,21 +1455,32 @@ local function mom_apply(key,value)
         if n then cfg.percent=n end
     elseif key=='red' then
         local v=tostring(value)
-        if v=='orbital + eagle' then cfg.red,cfg.orbital,cfg.eagle=true,true,true
-        elseif v=='orbital only' then cfg.red,cfg.orbital,cfg.eagle=true,true,false
-        elseif v=='eagle only' then cfg.red,cfg.orbital,cfg.eagle=true,false,true
+        if v:find('orbital + eagle',1,true) or v:find('轨道+飞鹰',1,true) then
+            cfg.red,cfg.orbital,cfg.eagle=true,true,true
+        elseif v:find('orbital only',1,true) or v:find('只轨道',1,true) then
+            cfg.red,cfg.orbital,cfg.eagle=true,true,false
+        elseif v:find('eagle only',1,true) or v:find('只飞鹰',1,true) then
+            cfg.red,cfg.orbital,cfg.eagle=true,false,true
         else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
     elseif key=='blue' then
         local v=tostring(value)
-        if v=='vehicles' or v=='mechs' or v=='vehicles + mechs' or v=='all' then
-            cfg.blue=true
-            cfg.blue_scope=(v=='vehicles + mechs') and 'both' or v
+        if v:find('vehicles + mechs',1,true) or v:find('载具+机甲',1,true) then
+            cfg.blue=true cfg.blue_scope='both'
+        elseif v:find('vehicles',1,true) or v:find('就载具',1,true) then
+            cfg.blue=true cfg.blue_scope='vehicles'
+        elseif v:find('mechs',1,true) or v:find('就机甲',1,true) then
+            cfg.blue=true cfg.blue_scope='mechs'
+        elseif v:find('all',1,true) or v:find('全部',1,true) then
+            cfg.blue=true cfg.blue_scope='all'
         else cfg.blue=false end
     elseif key=='green' then
         cfg.green=(value==true or value=='on' or value=='true')
+    elseif key=='green_sentries' or key=='green_emplacements' or key=='green_others' then
+        cfg[key]=(value==true or value=='on' or value=='true')
     elseif key=='charges' then
         local v=tostring(value)
-        if v=='unlimited' then cfg.uses_unlimited=true cfg.uses_add=0
+        if v:find('unlimited',1,true) or v:find('无限',1,true) then
+            cfg.uses_unlimited=true cfg.uses_add=0
         else cfg.uses_add=tonumber(v:match('(%d)')) or 0 cfg.uses_unlimited=false end
     elseif key=='eagle_charges' then
         cfg.eagle_uses_add=tonumber(tostring(value):match('(%d)')) or 0
