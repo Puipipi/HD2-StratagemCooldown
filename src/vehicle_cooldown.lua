@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.8.1',status='starting',errors=0}
+local M={version='2.9.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -536,10 +536,14 @@ local function in_scope(kind)
     local scope=cfg.blue_scope or 'all'
     if kind=='orbital' then return cfg.red==true and cfg.orbital==true end
     if kind=='eagle'   then return cfg.red==true and cfg.eagle==true end
-    if kind=='support' then return cfg.blue==true and scope=='all' end
+    if kind=='support' then
+        return cfg.blue==true and (scope=='all' or scope=='support')
+    end
     if kind=='vehicle' then
         return cfg.blue==true and (scope=='vehicles' or scope=='both' or scope=='all')
     end
+    -- 仅支援武器: only the support family, nothing else
+    if kind=='mech' and scope=='support' then return false end
     if kind=='mech' then
         return cfg.blue==true and (scope=='mechs' or scope=='both' or scope=='all')
     end
@@ -835,10 +839,16 @@ local function apply_manager_ticks()
             cfg.blue=false
         else
         cfg.blue=true
-        if n:find('all',1,true) then cfg.blue_scope='all' picks[#picks+1]='blue=all'
-        elseif n:find('vehicles + mechs',1,true) then cfg.blue_scope='both' picks[#picks+1]='blue=both'
-        elseif n:find('vehicles only',1,true) then cfg.blue_scope='vehicles' picks[#picks+1]='blue=vehicles'
-        elseif n:find('mechs only',1,true) then cfg.blue_scope='mechs' picks[#picks+1]='blue=mechs' end
+        if n:find('全部',1,true) or n:find('all',1,true) then
+            cfg.blue_scope='all' picks[#picks+1]='blue=all'
+        elseif n:find('仅支援武器',1,true) or n:find('support only',1,true) then
+            cfg.blue_scope='support' picks[#picks+1]='blue=support'
+        elseif n:find('载具和机甲',1,true) or n:find('vehicles + mechs',1,true) then
+            cfg.blue_scope='both' picks[#picks+1]='blue=both'
+        elseif n:find('仅载具',1,true) or n:find('vehicles only',1,true) then
+            cfg.blue_scope='vehicles' picks[#picks+1]='blue=vehicles'
+        elseif n:find('仅机甲',1,true) or n:find('mechs only',1,true) then
+            cfg.blue_scope='mechs' picks[#picks+1]='blue=mechs' end
         end
     end
     if ticks.green and ticks.green.on then
@@ -1014,6 +1024,7 @@ local function apply_group_markers()
             local age=ts and (os.time()-ts) or nil
             if value and value~='' and (not age or age<=86400) then
                 if axis=='red' then
+                    if value=='all' then value='both' end
                     if value=='both' then cfg.red,cfg.orbital,cfg.eagle=true,true,true
                     elseif value=='orbital' then cfg.red,cfg.orbital,cfg.eagle=true,true,false
                     elseif value=='eagle' then cfg.red,cfg.orbital,cfg.eagle=true,false,true
@@ -1021,6 +1032,7 @@ local function apply_group_markers()
                 elseif axis=='blue' then
                     if value=='off' then cfg.blue=false
                     else cfg.blue=true cfg.blue_scope=value end
+                    picks=cfg.blue_scope or 'off'
                 elseif axis=='green' then
                     cfg.green=(value=='on')
                 elseif axis=='cooldown' then
@@ -1470,16 +1482,17 @@ local MOM_OPTS={
     {key='percent',label='冷却保留百分比 / Cooldown kept (%)',kind='slider',
      default=80,min=10,max=100,step=5},
     {key='red',label='红战备 / Red stratagems',kind='choice',default='关闭 off',
-     choices={'关闭 off','轨道+飞鹰 orbital + eagle','只轨道 orbital only','只飞鹰 eagle only'}},
-    {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='就载具 vehicles',
-     choices={'就载具 vehicles','就机甲 mechs','载具+机甲 vehicles + mechs','全部 all','关闭 off'}},
+     choices={'关闭 off','飞鹰 eagle','轨道 orbital','全部 all'}},
+    {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='仅载具 vehicles',
+     choices={'关闭 off','仅载具 vehicles','仅机甲 mechs','仅载具和机甲 vehicles + mechs',
+              '仅支援武器 support only','全部 all'}},
     {key='green',label='绿战备 / Green stratagems',kind='toggle',default=false},
-    {key='charges_add',label='次数增加 / Extra charges',kind='slider',
-     default=0,min=0,max=20,step=1},
+    {key='charges_add',label='次数增加 (最多+5) / Extra charges',kind='slider',
+     default=0,min=0,max=5,step=1},
     {key='charges_unlimited',label='取消次数上限 / Unlimited charges',kind='toggle',
      default=false},
-    {key='eagle_charges_add',label='飞鹰次数增加 / Extra Eagle charges',kind='slider',
-     default=0,min=0,max=20,step=1},
+    {key='eagle_charges_add',label='飞鹰次数增加 (最多+5) / Extra Eagle charges',kind='slider',
+     default=0,min=0,max=5,step=1},
 }
 
 local function mom_apply(key,value)
@@ -1493,23 +1506,25 @@ local function mom_apply(key,value)
         end
     elseif key=='red' then
         local v=tostring(value)
-        if v:find('orbital + eagle',1,true) or v:find('轨道+飞鹰',1,true) then
+        if v:find('全部',1,true) or v:find('all',1,true) then
             cfg.red,cfg.orbital,cfg.eagle=true,true,true
-        elseif v:find('orbital only',1,true) or v:find('只轨道',1,true) then
+        elseif v:find('轨道',1,true) or v:find('orbital',1,true) then
             cfg.red,cfg.orbital,cfg.eagle=true,true,false
-        elseif v:find('eagle only',1,true) or v:find('只飞鹰',1,true) then
+        elseif v:find('飞鹰',1,true) or v:find('eagle',1,true) then
             cfg.red,cfg.orbital,cfg.eagle=true,false,true
         else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
     elseif key=='blue' then
         local v=tostring(value)
-        if v:find('vehicles + mechs',1,true) or v:find('载具+机甲',1,true) then
-            cfg.blue=true cfg.blue_scope='both'
-        elseif v:find('vehicles',1,true) or v:find('就载具',1,true) then
-            cfg.blue=true cfg.blue_scope='vehicles'
-        elseif v:find('mechs',1,true) or v:find('就机甲',1,true) then
-            cfg.blue=true cfg.blue_scope='mechs'
-        elseif v:find('all',1,true) or v:find('全部',1,true) then
+        if v:find('全部',1,true) or v:find('all',1,true) then
             cfg.blue=true cfg.blue_scope='all'
+        elseif v:find('仅支援武器',1,true) or v:find('support only',1,true) then
+            cfg.blue=true cfg.blue_scope='support'
+        elseif v:find('载具和机甲',1,true) or v:find('vehicles + mechs',1,true) then
+            cfg.blue=true cfg.blue_scope='both'
+        elseif v:find('仅载具',1,true) or v:find('vehicles',1,true) then
+            cfg.blue=true cfg.blue_scope='vehicles'
+        elseif v:find('仅机甲',1,true) or v:find('mechs',1,true) then
+            cfg.blue=true cfg.blue_scope='mechs'
         else cfg.blue=false end
     elseif key=='green' then
         cfg.green=(value==true or value=='on' or value=='true')
