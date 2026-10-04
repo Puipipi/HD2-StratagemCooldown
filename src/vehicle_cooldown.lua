@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.5.0',status='starting',errors=0}
+local M={version='3.6.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1489,7 +1489,7 @@ end
 
 local MOM_OPTS={
     {key='percent', kind='choice', label='冷却保留百分比 / Cooldown kept',
-     choices={'100%','80%','50%'},
+     choices={'100%','95%','90%','85%','80%','75%','70%','65%','60%','55%','50%','45%','40%','35%','30%','25%'},
      value='80%',
      note='任何非整数百分比写在 config.txt（percent=65）。',
      apply=function(v)
