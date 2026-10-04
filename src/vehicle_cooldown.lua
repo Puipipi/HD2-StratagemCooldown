@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.4',status='starting',errors=0}
+local M={version='2.9.5',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -191,13 +191,16 @@ local function conf()
     -- Chinese values are accepted too: map the words players actually type onto
     -- the English tokens the parser below understands (longest match first).
     do
-        local map={ {'就载具和机甲','both'}, {'载具和机甲','both'}, {'就载具','vehicles'},
+        local map={ {'仅载具和机甲','both'}, {'就载具和机甲','both'}, {'载具和机甲','both'},
+                    {'仅支援武器','support'}, {'支援武器','support'}, {'只支援武器','support'},
+                    {'仅载具','vehicles'}, {'就载具','vehicles'}, {'仅机甲','mechs'},
                     {'就机甲','mechs'}, {'载具','vehicles'}, {'机甲','mechs'},
-                    {'全部','all'}, {'所有','all'}, {'只轨道','orbital'}, {'只飞鹰','eagle'},
-                    {'轨道','orbital'}, {'飞鹰','eagle'}, {'排击','orbital'},
-                    {'开启','on'}, {'打开','on'}, {'关闭','off'}, {'不添加','none'},
-                    {'不变','none'}, {'不改','none'}, {'无限','unlimited'},
-                    {'无限制','unlimited'}, {'去除数量限制','unlimited'} }
+                    {'全部','all'}, {'所有','all'},
+                    {'仅轨道','orbital'}, {'只轨道','orbital'}, {'仅飞鹰','eagle'},
+                    {'只飞鹰','eagle'}, {'轨道','orbital'}, {'飞鹰','eagle'}, {'排击','orbital'},
+                    {'开启','on'}, {'打开','on'}, {'关闭','off'},
+                    {'不添加','none'}, {'不增加','none'}, {'不变','none'}, {'不改','none'},
+                    {'无限制','unlimited'}, {'去除数量限制','unlimited'}, {'无限','unlimited'} }
         for _,pair in ipairs(map) do text=text:gsub(pair[1],pair[2]) end
     end
     -- SECTION ALIASES: [cooldown] [scope] [charges] [eagle] plus the old flat keys
