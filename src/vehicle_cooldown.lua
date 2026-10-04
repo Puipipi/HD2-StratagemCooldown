@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.3.0',status='starting',errors=0}
+local M={version='2.4.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -185,7 +185,51 @@ local function conf()
         end)
         return d
     end
+    -- SECTION ALIASES: [cooldown] [scope] [charges] [eagle] plus the old flat keys
+    local section=''
     for line in text:gmatch('[^\r\n]+') do
+        local sec=line:match('^%s*%[([%w_]+)%]%s*$')
+        if sec then
+            section=sec:lower()
+        elseif section=='scope' then
+            local k=line:match('^%s*red%s*=%s*(%a+)%s*$')
+            if k then
+                if k=='off' or k=='no' then d.red=false d.orbital=false d.eagle=false
+                elseif k=='orbital' then d.red=true d.orbital=true d.eagle=false
+                elseif k=='eagle' then d.red=true d.orbital=false d.eagle=true
+                elseif k=='both' or k=='on' or k=='yes' then d.red=true d.orbital=true d.eagle=true end
+                d.explicit=d.explicit or {} d.explicit.red=true d.explicit.orbital=true d.explicit.eagle=true
+            end
+            k=line:match('^%s*blue%s*=%s*(%a+)%s*$')
+            if k then
+                if k=='off' or k=='no' then d.blue=false
+                elseif k=='vehicles' or k=='mechs' or k=='both' or k=='all' then
+                    d.blue=true d.blue_scope=k
+                elseif k=='on' or k=='yes' then d.blue=true end
+                d.explicit=d.explicit or {} d.explicit.blue=true d.explicit.blue_scope=true
+            end
+            k=line:match('^%s*green%s*=%s*(%a+)%s*$')
+            if k then d.green=(k=='on' or k=='yes' or k=='true')
+                d.explicit=d.explicit or {} d.explicit.green=true end
+            k=line:match('^%s*missions%s*=%s*(%a+)%s*$')
+            if k then d.missions=(k=='on' or k=='yes' or k=='true') end
+        elseif section=='charges' then
+            local k=line:match('^%s*mode%s*=%s*([+%w]+)%s*$')
+            if k then
+                if k=='none' or k=='off' then d.uses_add=0 d.uses_unlimited=false
+                elseif k=='unlimited' then d.uses_unlimited=true d.uses_add=0
+                else local n=k:match('(%d)') if n then d.uses_add=tonumber(n) d.uses_unlimited=false end end
+                d.explicit=d.explicit or {} d.explicit.uses_add=true d.explicit.uses_unlimited=true
+            end
+        elseif section=='eagle' then
+            local k=line:match('^%s*mode%s*=%s*([+%w]+)%s*$')
+            if k then
+                if k=='none' or k=='off' then d.eagle_uses_add=0 d.eagle_uses_unlimited=false
+                elseif k=='unlimited' then d.eagle_uses_unlimited=true d.eagle_uses_add=0
+                else local n=k:match('(%d)') if n then d.eagle_uses_add=tonumber(n) d.eagle_uses_unlimited=false end end
+                d.explicit=d.explicit or {} d.explicit.eagle_uses_add=true
+            end
+        end
         local v=line:match('^%s*cooldown%s*=%s*(%a+)%s*$')
         if v then d.cooldown=(v=='yes' or v=='true' or v=='on') end
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
