@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.7.0',status='starting',errors=0}
+local M={version='3.8.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -535,7 +535,9 @@ local function classify(name)
 end
 
 local function in_scope(kind)
-    if kind==nil or not cfg.cooldown then return false end
+    -- 3.8.0: a nil family means "a stratagem this build does not know" - it must not be
+    -- thrown away, it is handled by the inclusive rule at the bottom.
+    if not cfg.cooldown then return false end
     local scope=cfg.blue_scope or 'all'
     if kind=='orbital' then return cfg.red==true and cfg.orbital==true end
     if kind=='eagle'   then return cfg.red==true and cfg.eagle==true end
@@ -552,7 +554,9 @@ local function in_scope(kind)
     end
     if kind=='green'   then return cfg.green==true end
     if kind=='mission' then return cfg.missions==true end
-    return false
+    -- 3.8.0: anything else (a family added by a future update) follows the colour
+    -- switches, so new stratagems are read and modified without touching the addon.
+    return cfg.red==true or cfg.blue==true or cfg.green==true
 end
 
 -- 1.9.1 charges: +0x50, int32, -1 = unlimited.
