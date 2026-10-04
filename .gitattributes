@@ -1,9 +1,6 @@
-* text=auto
-*.lua text eol=lf
-*.py text eol=lf
-*.md text eol=lf
-*.txt text eol=lf
+﻿# keep the shipped text assets byte-identical across checkouts
+*.html text eol=lf
+*.lua  text eol=lf
+*.md   text eol=lf
 *.json text eol=lf
-*.png binary
-*.webp binary
-*.zip binary
+*.txt  text eol=lf
