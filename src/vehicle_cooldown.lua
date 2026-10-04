@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.4.0',status='starting',errors=0}
+local M={version='3.5.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1546,7 +1546,7 @@ local MOM_OPTS={
          end
      end},
     {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
-     choices={'不添加 / None','+1','+2','+3'},
+     choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
      note='只作用于 EAGLE.*；自定义数量写 eagle_uses_add=。',
      apply=function(v)
