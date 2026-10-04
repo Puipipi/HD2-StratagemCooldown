@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.5.2',status='starting',errors=0}
+local M={version='2.5.3',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -568,6 +568,7 @@ local function uses_target(orig)
     if orig<0 then return nil end                      -- already unlimited
     if cfg.uses_unlimited==true then return -1 end
     local add=math.floor(tonumber(cfg.uses_add) or 0)
+    if add<0 then add=0 elseif add>99 then add=99 end
     if add<=0 then return nil end
     if add>3 then add=3 end
     local want=orig+add
@@ -660,21 +661,16 @@ M.table_base=table_base
 log('table located at load: base='..hex(table_base)..' (single pass)')
 local function desired_bits() return f32_bits(cfg.cooldown_s or 390) end
 
--- 1.9.1: the cooldown choice is one of three presets - 100 (unchanged),
--- 80 (20% shorter) or 50 (half). Anything else is snapped to the nearest preset
--- and logged, so a typo cannot silently produce a different gameplay setting.
+-- 2.5.3: the cooldown percentage is a free number now (1..100). It used to be
+-- snapped to the nearest of 100/80/50, which silently turned percent=65 into 80.
 do
-    local allowed={100,80,50}
-    local want=tonumber(cfg.percent) or 50
-    local best=allowed[1]
-    for _,value in ipairs(allowed) do
-        if math.abs(value-want)<math.abs(best-want) then best=value end
+    local want=tonumber(cfg.percent) or 80
+    if want<1 then want=1 elseif want>100 then want=100 end
+    if want~=tonumber(cfg.percent) then
+        log(string.format('percent=%s out of range - clamped to %s',
+            tostring(cfg.percent),tostring(want)))
     end
-    if want~=best then
-        log(string.format('percent=%s is not one of 100/80/50 - using %s',
-            tostring(cfg.percent),tostring(best)))
-    end
-    cfg.percent=best
+    cfg.percent=want
 end
 
 -- 1.7.2/1.9.0: percent = 50 means "half of THIS stratagem's own cooldown" (the
