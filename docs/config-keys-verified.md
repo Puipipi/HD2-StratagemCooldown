@@ -36,3 +36,17 @@
 `red`/`blue` 当普通布尔处理（`d[k] = v=='yes' or 'true' or 'on'`），于是 `red=yes`
 不会打开 orbital/eagle 子项、`blue=all` 反而把 blue 置为 false。2.4.2 已修正，本文件
 记录的是修正后实测（沙箱）通过的语义。
+
+## 分节 INI 与平铺写法一致性（2026-10-04 复验）
+
+修好 `red`/`blue` 的组语义后，分节写法与平铺写法逐项对比，结果一致：
+
+| 写法 | 结果 |
+|------|------|
+| `[cooldown] percent=50` + `[scope] red=both blue=all green=on` + `[charges] mode=unlimited` + `[eagle] mode=+2` | 与平铺写法完全相同（坦克 390、FRV 240、机甲 210、机甲/激光 -1、飞鹰 4、地雷 60、REARM 75）|
+| `[scope] red=orbital` | 轨道激光 240、REARM 150 |
+| `[scope] red=eagle` | REARM 120、轨道激光 300 |
+| `[scope] blue=mechs` | 机甲 210，坦克/FRV 不变 |
+| `[scope] blue=all` + 平铺 `percent=50 uses_add=2` | 混合写法可用（坦克 390、机甲/激光 +2、地雷 60）|
+
+注意：同一行同时被两种写法覆盖时是“后面的行生效”，因此要把 `orbital=` / `eagle=` 写在 `red=` 之后。
