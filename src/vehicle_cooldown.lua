@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.5.4',status='starting',errors=0}
+local M={version='2.5.6',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -570,7 +570,6 @@ local function uses_target(orig)
     local add=math.floor(tonumber(cfg.uses_add) or 0)
     if add<0 then add=0 elseif add>99 then add=99 end
     if add<=0 then return nil end
-    if add>3 then add=3 end
     local want=orig+add
     if want>99 then want=99 end
     if want==orig then return nil end
