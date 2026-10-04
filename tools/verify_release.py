@@ -269,11 +269,15 @@ def main():
 
     def mom(saved, expect, config=None):
         box = sandbox(core_global, config=config)
-        box.load()
+        # the host appears only after the addon booted - exactly the "addons load in
+        # either order" case, so registration must be retried and then take effect
         box.rt.execute(FAKE_HOST.replace('SAVED', lua_table(saved)))
-        box.run_until(lambda: 'cooldown applied to' in box.log_text(), max_seconds=40.0)
-        ids = box.eval("(function() local n=0 for _ in pairs(ModOptionsMenu.registered) do n=n+1 end "
-                       "return n end)()")
+        count_src = ("(function() local n=0 for _ in pairs(ModOptionsMenu.registered or {}) "
+                     "do n=n+1 end return n end)()")
+        box.run_until(lambda: (box.eval(count_src) or 0) == 7, max_seconds=30.0)
+        ids = box.eval(count_src) or 0
+        base = box.eval('frames') or 0
+        box.run_until(lambda: (box.eval('frames') or 0) > base + 900, max_seconds=25.0)
         got = {k: box.mem.cooldown(READ[k]) for k in expect}
         ok = ids == 7 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
         box.cleanup()
