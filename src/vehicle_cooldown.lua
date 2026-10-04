@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.6.0',status='starting',errors=0}
+local M={version='2.7.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -250,8 +250,7 @@ local function conf()
         v=line:match('^%s*probe%s*=%s*(%a+)%s*$')
         if v then d.probe=(v=='yes' or v=='true' or v=='on') end
         for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited',
-                           'eagle_uses_unlimited','green_sentries','green_emplacements',
-                           'green_others'}) do
+                           'eagle_uses_unlimited'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
             if v then
                 local on=(v=='yes' or v=='true' or v=='on')
@@ -520,13 +519,12 @@ local function classify(name)
     if p=='ORBITAL' then return 'orbital' end
     if p=='EAGLE' then return 'eagle' end
     if p=='TEAM WEAPONS' or p=='BACKPACK' or p=='CONSUMABLES' then return 'support' end
-    if p=='SENTRYS' or p=='SENTRIES' then return 'green_sentry' end
-    if p=='EMPLACEMENTS' then return 'green_emplacement' end
+    if p=='SENTRYS' or p=='SENTRIES' or p=='EMPLACEMENTS' then return 'green' end
     if p=='VEHICLES' then return 'vehicle' end
     if p=='MISSIONS' or p=='MISSIONS CLAN STATION' then return 'mission' end
     if p=='PRESIDENT REWARDS' then
         if name:find('MACHINEGUN',1,true) or name:find('BACKPACK',1,true) then return 'support' end
-        if name:find('SENTRY',1,true) then return 'green_sentry' end
+        if name:find('SENTRY',1,true) then return 'green' end
         return 'other'
     end
     if p=='TANK' then return 'tank_action' end
@@ -545,15 +543,7 @@ local function in_scope(kind)
     if kind=='mech' then
         return cfg.blue==true and (scope=='mechs' or scope=='both' or scope=='all')
     end
-    -- green parts default to on, so configs written before the split keep working
-    if kind=='green'   then return cfg.green==true and cfg.green_others~=false end
-    if kind=='green_sentry' then
-        return cfg.green==true and cfg.green_sentries~=false
-    end
-    if kind=='green_emplacement' then
-        return cfg.green==true and cfg.green_emplacements~=false
-    end
-    if kind=='green_other' then return cfg.green==true and cfg.green_others~=false end
+    if kind=='green'   then return cfg.green==true end
     if kind=='mission' then return cfg.missions==true end
     return false
 end
@@ -857,19 +847,6 @@ local function apply_manager_ticks()
             cfg.green=false
         else
             cfg.green=true picks[#picks+1]='green=on'
-            -- the manager block also says which parts to touch
-            if n:find('只哨戒',1,true) or n:find('sentries only',1,true) then
-                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=true,false,false
-                picks[#picks+1]='green=sentries'
-            elseif n:find('只固定炮台',1,true) or n:find('emplacements only',1,true) then
-                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=false,true,false
-                picks[#picks+1]='green=emplacements'
-            elseif n:find('地雷',1,true) or n:find('mines',1,true) then
-                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=false,false,true
-                picks[#picks+1]='green=mines'
-            else
-                cfg.green_sentries,cfg.green_emplacements,cfg.green_others=true,true,true
-            end
         end
     end
     if ticks.uses and ticks.uses.on and ticks.uses.pick then
@@ -1439,18 +1416,13 @@ local mom={host=nil,last_try=-99}
 -- labels and choice words carry both languages; the values are matched by keyword
 -- so a player reading either language gets the same result
 local MOM_OPTS={
-    {key='enabled',label='模组启用 / Mod enabled',kind='toggle',default=true},
     {key='percent',label='冷却保留百分比 / Cooldown kept (%)',kind='slider',
      default=80,min=10,max=100,step=5},
     {key='red',label='红战备 / Red stratagems',kind='choice',default='关闭 off',
      choices={'关闭 off','轨道+飞鹰 orbital + eagle','只轨道 orbital only','只飞鹰 eagle only'}},
     {key='blue',label='蓝战备 / Blue stratagems',kind='choice',default='就载具 vehicles',
      choices={'就载具 vehicles','就机甲 mechs','载具+机甲 vehicles + mechs','全部 all','关闭 off'}},
-    {key='green',label='绿战备总开关 / Green stratagems',kind='toggle',default=false},
-    {key='green_sentries',label='  哨戒/机枪塔 / Sentries',kind='toggle',default=true},
-    {key='green_emplacements',label='  固定炮台 / Emplacements',kind='toggle',default=true},
-    {key='green_others',label='  地雷/特斯拉/护盾 / Mines, Tesla, Shields',kind='toggle',
-     default=true},
+    {key='green',label='绿战备 / Green stratagems',kind='toggle',default=false},
     {key='charges_add',label='次数增加 / Extra charges',kind='slider',
      default=0,min=0,max=20,step=1},
     {key='charges_unlimited',label='取消次数上限 / Unlimited charges',kind='toggle',
@@ -1490,8 +1462,6 @@ local function mom_apply(key,value)
         else cfg.blue=false end
     elseif key=='green' then
         cfg.green=(value==true or value=='on' or value=='true')
-    elseif key=='green_sentries' or key=='green_emplacements' or key=='green_others' then
-        cfg[key]=(value==true or value=='on' or value=='true')
     elseif key=='charges_add' then
         local n=tonumber(tostring(value):match('(%d+)')) or 0
         if n<0 then n=0 elseif n>20 then n=20 end
@@ -1542,11 +1512,8 @@ local function mom_register(host)
             local key=o.key
             if type(host.on_change)=='function' then
                 local guard=({percent='percent',red='red',blue='blue',green='green',
-                              green_sentries='green_sentries',green_emplacements='green_emplacements',
-                              green_others='green_others',charges_add='uses_add',
-                              charges_unlimited='uses_unlimited',
-                              eagle_charges_add='eagle_uses_add',
-                              enabled='cooldown'})[key] or key
+                              charges_add='uses_add',charges_unlimited='uses_unlimited',
+                              eagle_charges_add='eagle_uses_add'})[key] or key
                 host.on_change(MOM_ID..'.'..key,function(value)
                     if type(cfg.explicit)=='table' and cfg.explicit[guard] then
                         log('menu: '..key..' left alone, config.txt sets '..guard..' explicitly')
@@ -1567,10 +1534,8 @@ local function mom_register(host)
         for _,o in ipairs(MOM_OPTS) do
             local v=host.get(MOM_ID..'.'..o.key)
             local g=({percent='percent',red='red',blue='blue',green='green',
-                      green_sentries='green_sentries',green_emplacements='green_emplacements',
-                      green_others='green_others',charges_add='uses_add',
-                      charges_unlimited='uses_unlimited',eagle_charges_add='eagle_uses_add',
-                      enabled='cooldown'})[o.key] or o.key
+                      charges_add='uses_add',charges_unlimited='uses_unlimited',
+                      eagle_charges_add='eagle_uses_add'})[o.key] or o.key
             if v~=nil and not (type(cfg.explicit)=='table' and cfg.explicit[g]) then
                 if mom_apply(o.key,v) then applied=applied+1 end
             end
