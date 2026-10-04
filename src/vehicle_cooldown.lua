@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.3',status='starting',errors=0}
+local M={version='2.4.4',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1025,14 +1025,25 @@ local function read_markers(now)
         end
     end
     local source='markers'
-    local dbok,dbnote=pcall(apply_manager_ticks)
-    if dbok and dbnote then
+    -- pcall returns (status, <the function's returns>...): keep all three so the
+    -- picks summary is not swallowed by the leading "true".
+    local dbok,dbret,dbnote=pcall(apply_manager_ticks)
+    if dbok and dbret then
         source='manager DB'
         cfg.markers_done=true
         local vals=cfg.explicit_vals or {}
         for k,v in pairs(vals) do cfg[k]=v end
+        local keys={}
+        for k in pairs(vals) do keys[#keys+1]=k end
+        table.sort(keys)
+        local expl='none'
+        if #keys>0 then
+            local parts={}
+            for _,k in ipairs(keys) do parts[#parts+1]=k..'='..tostring(vals[k]) end
+            expl='config.txt: '..table.concat(parts,',')
+        end
         log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
-            tostring(dbnote), next(vals) and 'config.txt overrides applied' or 'none',
+            (dbnote and dbnote~='') and dbnote or '(no picks recorded)', expl,
             string.format('percent=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
                 tostring(cfg.percent),tostring(cfg.red),tostring(cfg.orbital),tostring(cfg.eagle),
                 tostring(cfg.blue),tostring(cfg.blue_scope),tostring(cfg.green),
