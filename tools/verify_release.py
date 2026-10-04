@@ -82,10 +82,23 @@ def payload_from(zf):
     return raw[i0:i1 + len(b'-- [guide:end]')].decode('utf-8')
 
 
+def clear_markers(box):
+    """The addon still understands the old provider markers (opt_*.txt) and reads
+    them whenever no manager database is present. Leftovers from earlier runs would
+    silently add charges, so each sandbox starts without them."""
+    for f in os.listdir(box.cfg_dir):
+        if f.startswith('opt_') or f == 'DeployedAddons.txt':
+            try:
+                os.remove(os.path.join(box.cfg_dir, f))
+            except OSError:
+                pass
+
+
 def sandbox(core, config=None, ini=None, db=None):
     box = Sandbox(core, records=WORLD,
                   config=dict(config or {}, uptime_s=5, stable_s=1,
                               manager_db=db or os.path.join(tempfile.gettempdir(), 'vc_absent.json').replace('\\', '/')))
+    clear_markers(box)
     if ini is not None:
         io.open(os.path.join(box.cfg_dir, 'config.txt'), 'w', encoding='utf-8', newline='').write(ini)
     box.load()
