@@ -155,12 +155,23 @@ class TestCooldownPresets(unittest.TestCase):
         finally:
             box.cleanup()
 
-    def test_an_unlisted_value_is_snapped_to_the_nearest_preset(self):
-        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 60, 'uptime_s': 5, 'stable_s': 1})
+    def test_a_free_percentage_is_used_as_it_is(self):
+        # 2.5.3 removed the 100/80/50 snapping: the player picks any percentage
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 60, 'uptime_s': 5,
+                                                  'stable_s': 1})
         try:
             run(box)
-            self.assertTrue(box.find('not one of 100/80/50'))
-            self.assertAlmostEqual(box.mem.cooldown(1), 390.0, places=3)     # 60 -> 50
+            self.assertAlmostEqual(box.mem.cooldown(1), 468.0, places=3)     # 780 * 0.60
+        finally:
+            box.cleanup()
+
+    def test_an_out_of_range_percentage_is_clamped(self):
+        box = Sandbox(SRC, records=WORLD, config={'percent': 50, 'percent': 0, 'uptime_s': 5,
+                                                  'stable_s': 1})
+        try:
+            run(box)
+            self.assertTrue(box.find('clamped to 1'))
+            self.assertAlmostEqual(box.mem.cooldown(1), 7.8, places=3)       # 780 * 0.01
         finally:
             box.cleanup()
 
