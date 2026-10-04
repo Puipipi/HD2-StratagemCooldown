@@ -63,3 +63,30 @@
 所以用旧包建立的六块勾选仍然生效。用玩家真实 `hd2a_data.json` 验证：把 2.4.3 payload 与那份
 数据库一起跑，`blocks(from manager DB)` 正常解析出红/蓝/绿/冷却/次数/飞鹰各轴，写入结果与勾选一致；
 没有 config.txt 时也不会回退成“全类别 50%”。config.txt 里未注释的键优先级更高。
+
+## 日志怎么读（2.4.4 起）
+
+启动后 `%LOCALAPPDATA%\CowboyBingus\Helldivers2\Logs\VehicleCooldown.log` 里三行就够了：
+
+```
+v2.4.5 installed: all-stratagem cooldown, uptime gate 0s, stable gate 1s [profile: Cooldown-80]
+blocks(from manager DB): red=both blue=all green=on uses=unlimited eagle=+3 cooldown=50% | explicit: config.txt: percent=50 | effective: percent=50 red=true(orbital=true,eagle=true) blue=true(all) green=true uses_add=0 uses_unlimited=true
+cooldown applied to 106 target(s) [1=VEHICLES. BASTION(TANK)[vehicle] 780->390, ...]
+```
+
+* 第一行：装的是哪个版本（`v2.4.5`）、档位；
+* 第二行：**管理器勾选解析出的项**（`red=…/blue=…/green=…/uses=…/eagle=…/cooldown=…`）→ `explicit:` 是
+  config.txt 里显式生效的键（含值）→ `effective:` 是最终生效的六个轴；
+* 第三行：真正写进内存的偏移与前后值（`1+0x68` 冷却、`N+0x50` 次数）。
+
+没有管理器数据库时第二行会写 `manager blocks: none deployed (single-addon mode)`，此时用的是
+内置保守默认 + config.txt。
+
+## 2.4.5 全套离线验证（2026-10-04，出货 payload，16/16 通过）
+
+平铺键 7 项：默认 / 50%+全开+无限+飞鹰+2 / 只轨道 / 只飞鹰 / `blue=all` / 空白机器 / 无数据库但全开。
+分节 INI 6 项：50%+both+all+on+unlimited+2 / 默认 / `red=orbital` / `red=eagle` / `blue=mechs` / 混合写法。
+日志 3 项：真实数据库下打印 picks＋effective / 显式键逐个列出 / 无数据库时的提示。
+
+另外：`pcall` 的返回值处理已修正（此前 `blocks(from manager DB): true` 是因为把函数第一个返回值
+`true` 当成了摘要）；`eagle_uses` 的重复读取块已删除（此前日志会打印两次 `eagle=+3`）。
