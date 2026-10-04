@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.1.0',status='starting',errors=0}
+local M={version='3.2.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1104,7 +1104,18 @@ local function read_markers(now)
             for _,k in ipairs(keys) do parts[#parts+1]=k..'='..tostring(vals[k]) end
             expl='config.txt: '..table.concat(parts,',')
         end
-        log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
+        -- 3.2.0: 2.2.2 (the build the player says worked) predates the six colour blocks
+    -- and always applied its own profile; this build honours the manager, and the import
+    -- default leaves every block on 关闭 - which quietly means "change nothing".
+    if (not cfg.red) and (not cfg.blue) and (not cfg.green)
+       and (tonumber(cfg.uses_add) or 0)<=0 and not cfg.uses_unlimited
+       and not cfg.nothing_fallback then
+        cfg.nothing_fallback=true
+        cfg.blue=true cfg.blue_scope=cfg.blue_scope or 'vehicles'
+        if not cfg.percent then cfg.percent=80 end
+        log('every block resolved to off - falling back to the shipped profile: blue=vehicles, percent='..tostring(cfg.percent))
+    end
+    log(string.format('blocks(from manager DB): %s | explicit: %s | effective: %s',
             (dbnote and dbnote~='') and dbnote or '(no picks recorded)', expl,
             string.format('percent=%s min_cooldown=%s red=%s(orbital=%s,eagle=%s) blue=%s(%s) green=%s uses_add=%s uses_unlimited=%s',
                 tostring(cfg.percent),tostring(cfg.min_cooldown),
