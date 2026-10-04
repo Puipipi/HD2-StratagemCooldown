@@ -164,14 +164,31 @@ def main():
     print('--- 1. package shape ---')
     man = json.loads(zf.read('manifest.json').decode('utf-8'))
     opts = man.get('Options') or []
-    note('six option blocks with UI-only entries',
-         len(opts) == 6 and sum(len(o.get('SubOptions') or []) for o in opts) == 22,
-         '%d blocks / %d entries' % (len(opts), sum(len(o.get('SubOptions') or []) for o in opts)))
-    note('every block carries an outer tick and its range choice',
-         all(len(o.get('SubOptions') or []) >= 2 for o in opts))
+    # core option (points at Addon/) + six choice groups whose suboptions point at
+    # real folders - the layout Cremator/Helmet Headlamp use, because Arsenal drops
+    # entries whose Include resolves to nothing
+    groups = [o for o in opts if o.get('SubOptions')]
+    entries = sum(len(o.get('SubOptions') or []) for o in opts)
+    note('core option plus six choice groups (27 entries)',
+         len(opts) == 7 and len(groups) == 6 and entries == 27,
+         '%d blocks / %d entries' % (len(opts), entries))
+    note('every block with choices has at least two',
+         all(len(o.get('SubOptions') or []) >= 2 for o in groups))
+    missing = []
+    for o in opts:
+        for one in (o.get('Include') or []):
+            if not any(n.startswith(one.rstrip('/') + '/') for n in names):
+                missing.append('%s -> %s' % (o.get('Name'), one))
+        for sub in (o.get('SubOptions') or []):
+            inc = (sub.get('Include') or [''])[0]
+            files = [n for n in names if n.startswith(inc.rstrip('/') + '/')]
+            if not files or not any(f.endswith('.patch_0') for f in files):
+                missing.append('%s -> %s' % (sub.get('Name'), inc))
+    note('every Include resolves to a folder holding a payload', not missing, str(missing[:3]))
     note('payload at the package root', PAYLOAD in names)
     note('no nested Addon/manifest.json', not any(n.endswith('Addon/manifest.json') for n in names))
-    note('no Arsenal-only Options/ tree', not any(n.startswith('Options/') for n in names))
+    note('the choice folders live under Options/ (the layout working mods use)',
+         any(n.startswith('Options/') for n in names))
     note('README / builder / preview shipped',
          all(f in names for f in ('README.txt', 'config-builder.html', 'preview.png')))
     note('root manifest declares an icon', bool(man.get('IconPath')), str(man.get('IconPath')))
@@ -321,28 +338,42 @@ def main():
         box.cleanup()
         return ok, got
 
+    # Arsenal ticks everything on import and the reader takes the first entry of a
+    # block, so with 关闭 first the import default is "change nothing"
     ok, got = mgr('manager: Arsenal import default (everything ticked)', {},
-                  dict(tank=624.0, frv=384.0, mech=420.0, mine=120.0, rearm=150.0), all_ticked=True)
-    note('manager: import default -> conservative config', ok, '' if ok else 'got %s' % got)
-    ok, got = mgr('manager: red+blue+green picks at 50%',
-                  {blocks['红战备']['Name']: pick('红战备', '轨道 + 飞鹰'),
+                  dict(tank=780.0, frv=480.0, mech=420.0, mine=120.0, rearm=150.0), all_ticked=True)
+    note('manager: import default = every block on its first entry (关闭)', ok,
+         '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: red=全部, blue=全部, green=开启, cooldown=50%',
+                  {blocks['红战备']['Name']: pick('红战备', '全部'),
                    blocks['蓝战备']['Name']: pick('蓝战备', '全部'),
                    blocks['绿战备']['Name']: pick('绿战备', '开启'),
                    blocks['冷却时间']['Name']: pick('冷却时间', '50%')},
                   dict(tank=390.0, frv=240.0, mech=210.0, mine=60.0, sentry=75.0, empl=90.0,
                        rearm=75.0))
     note('manager: red/blue/green/cooldown picks', ok, '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: blue=仅支援武器',
+                  {blocks['蓝战备']['Name']: pick('蓝战备', '仅支援武器'),
+                   blocks['冷却时间']['Name']: pick('冷却时间', '50%')},
+                  dict(tank=780.0, frv=480.0, mech=420.0, sentry=150.0))
+    note('manager: support-only scope', ok, '' if ok else 'got %s' % got)
     ok, got = mgr('manager: green off leaves its family alone',
                   {blocks['绿战备']['Name']: pick('绿战备', '关闭'),
                    blocks['冷却时间']['Name']: pick('冷却时间', '50%')},
                   dict(sentry=150.0, empl=180.0, mine=120.0))
     note('manager: green off', ok, '' if ok else 'got %s' % got)
-    ok, got = mgr('manager: blue=all with charges +2',
+    ok, got = mgr('manager: blue=全部 with charges +5',
                   {blocks['蓝战备']['Name']: pick('蓝战备', '全部'),
-                   blocks['次数增加']['Name']: pick('次数增加', '+2'),
+                   blocks['次数增加']['Name']: pick('次数增加', '+5'),
                    blocks['冷却时间']['Name']: pick('冷却时间', '80%')},
-                  dict(mech_uses=5, tank=624.0))
-    note('manager: charge choice lands', ok, '' if ok else 'got %s' % got)
+                  dict(mech_uses=8, tank=624.0))
+    note('manager: charge choice lands (+5)', ok, '' if ok else 'got %s' % got)
+    ok, got = mgr('manager: charges=无限制',
+                  {blocks['蓝战备']['Name']: pick('蓝战备', '全部'),
+                   blocks['次数增加']['Name']: pick('次数增加', '无限制'),
+                   blocks['冷却时间']['Name']: pick('冷却时间', '80%')},
+                  dict(mech_uses=-1))
+    note('manager: unlimited charges', ok, '' if ok else 'got %s' % got)
 
     print('\n--- 3d. in-game page (Mod Options Menu framework) ---')
     FAKE_HOST = """
