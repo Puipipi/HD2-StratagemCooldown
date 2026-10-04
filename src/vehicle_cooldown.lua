@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.2.5',status='starting',errors=0}
+local M={version='2.2.2',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -757,11 +757,7 @@ local function apply_manager_ticks()
     if ticks.uses and ticks.uses.on and ticks.uses.pick then
         local n=ticks.uses.pick
         if n:find('不添加',1,true) or n:find('none',1,true) or n:find('关闭',1,true) then
-            cfg.uses_add=0 cfg.uses_unlimited=false cfg.uses_cap9=false cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
-        elseif n:find('max',1,true) then
-            cfg.uses_unlimited=true cfg.uses_cap9=true picks[#picks+1]='uses=max9'
-        elseif n:find('max',1,true) then
-            cfg.uses_unlimited=true cfg.uses_cap9=true picks[#picks+1]='uses=max9'
+            cfg.uses_add=0 cfg.uses_unlimited=false cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
         elseif n:find('unlimited',1,true) then
             cfg.uses_unlimited=true picks[#picks+1]='uses=unlimited'
         else
@@ -893,14 +889,7 @@ do
                 return want
             end
         end
-        local want=base_uses_target(orig,kind)
-        -- 2.2.3: -1 only reads as "unlimited" for stratagems the game already flags
-        -- as infinite (vehicles). For finite ones the engine re-derives the usable
-        -- count, so "remove the limit" raises it to a safe large value instead.
-        if want==-1 and type(orig)=='number' and orig>=0 and cfg.uses_cap9==true then
-            return 9
-        end
-        return want
+        return base_uses_target(orig,kind)
     end
 end
 
@@ -923,14 +912,7 @@ do
                 return want
             end
         end
-        local want=base_uses_target(orig,kind)
-        -- 2.2.3: -1 only reads as "unlimited" for stratagems the game already flags
-        -- as infinite (vehicles). For finite ones the engine re-derives the usable
-        -- count, so "remove the limit" raises it to a safe large value instead.
-        if want==-1 and type(orig)=='number' and orig>=0 and cfg.uses_cap9==true then
-            return 9
-        end
-        return want
+        return base_uses_target(orig,kind)
     end
 end
 
