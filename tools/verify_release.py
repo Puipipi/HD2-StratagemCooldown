@@ -87,7 +87,7 @@ def clear_markers(box):
     them whenever no manager database is present. Leftovers from earlier runs would
     silently add charges, so each sandbox starts without them."""
     for f in os.listdir(box.cfg_dir):
-        if f.startswith('opt_') or f == 'DeployedAddons.txt':
+        if f.startswith(('opt_', 'grp_')) or f == 'DeployedAddons.txt':
             try:
                 os.remove(os.path.join(box.cfg_dir, f))
             except OSError:
