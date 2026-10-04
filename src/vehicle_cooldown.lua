@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.9.5',status='starting',errors=0}
+local M={version='2.9.6',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -262,7 +262,7 @@ local function conf()
                     -- orbital=/eagle= line refines it (that is what the builder emits)
                     if v=='orbital' then d.red,d.orbital,d.eagle=true,true,false
                     elseif v=='eagle' then d.red,d.orbital,d.eagle=true,false,true
-                    elseif v=='both' then d.red,d.orbital,d.eagle=true,true,true
+                    elseif v=='both' or v=='all' then d.red,d.orbital,d.eagle=true,true,true
                     else d.red=on d.orbital=on d.eagle=on end
                     d.explicit=d.explicit or {}
                     d.explicit.red=true d.explicit.orbital=true d.explicit.eagle=true
@@ -273,7 +273,7 @@ local function conf()
                 elseif k=='blue' then
                     -- blue carries its scope word directly: blue=all / blue=vehicles ...
                     if v=='off' or v=='false' then d.blue=false
-                    elseif v=='vehicles' or v=='mechs' or v=='both' or v=='all' then
+                    elseif v=='vehicles' or v=='mechs' or v=='both' or v=='all' or v=='support' then
                         d.blue=true d.blue_scope=v
                         d.explicit=d.explicit or {} d.explicit.blue_scope=true
                         d.explicit_vals=d.explicit_vals or {} d.explicit_vals.blue_scope=v
