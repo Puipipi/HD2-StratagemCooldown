@@ -222,6 +222,21 @@ def main():
          box.mem.uses(27) == 6 and box.mem.uses(107) == 6 and box.mem.uses(18) == 3)
     box.cleanup()
 
+    print('\n--- 3a2. free numbers ---')
+    behaviour('percent=65 (free percentage)',
+              dict(tank=507.0, frv=480.0, mech=420.0),      # mech is not in blue=vehicles
+              config={'cooldown': 'yes', 'percent': 65, 'red': 'no', 'blue': 'vehicles', 'green': 'no'})
+    behaviour('percent=25', dict(tank=195.0, frv=480.0, mech=420.0),
+              config={'cooldown': 'yes', 'percent': 25, 'red': 'no', 'blue': 'vehicles', 'green': 'no'})
+    behaviour('uses_add=7 (free charges)', dict(tank=780.0, mech=210.0),
+              config={'cooldown': 'yes', 'percent': 50, 'red': 'no', 'blue': 'all', 'green': 'no',
+                      'uses_add': 7})
+    box = sandbox(core_global, config={'cooldown': 'yes', 'percent': 100, 'red': 'no', 'blue': 'all',
+                                       'green': 'no', 'uses_add': 7})
+    note('  charges: mech 3+7 = 10, Orbital Laser 3+7 = 10',
+         box.mem.uses(27) == 10 and box.mem.uses(107) == 10)
+    box.cleanup()
+
     print('\n--- 3b. behaviour (sectioned INI) ---')
     behaviour('sections: 50 / both / all / on / unlimited / +2',
               dict(tank=390.0, frv=240.0, mech=210.0, mine=60.0, rearm=75.0),
@@ -287,22 +302,22 @@ def main():
         box.rt.execute(FAKE_HOST.replace('SAVED', lua_table(saved)))
         count_src = ("(function() local n=0 for _ in pairs(ModOptionsMenu.registered or {}) "
                      "do n=n+1 end return n end)()")
-        box.run_until(lambda: (box.eval(count_src) or 0) == 7, max_seconds=30.0)
+        box.run_until(lambda: (box.eval(count_src) or 0) == 11, max_seconds=30.0)
         ids = box.eval(count_src) or 0
         base = box.eval('frames') or 0
         box.run_until(lambda: (box.eval('frames') or 0) > base + 900, max_seconds=25.0)
         got = {k: box.mem.cooldown(READ[k]) for k in expect}
-        ok = ids == 7 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
+        ok = ids == 11 and all(abs(got[k] - v) < 0.01 for k, v in expect.items())
         box.cleanup()
         return ok, ids, got
 
-    ok, ids, got = mom({'stratagem_cooldown.percent': '50%', 'stratagem_cooldown.blue': 'all'},
+    ok, ids, got = mom({'stratagem_cooldown.percent': 50, 'stratagem_cooldown.blue': 'all'},
                        dict(tank=390.0, mech=210.0, laser=300.0))
-    note('menu after load: 7 options registered, saved values applied', ok,
+    note('menu after load: 11 options registered, saved values applied', ok,
          '' if ok else 'ids=%s got=%s' % (ids, got))
     ok, ids, got = mom({}, dict(tank=624.0, mech=420.0, laser=300.0))
     note('menu: no saved values -> shipped defaults', ok, '' if ok else 'got=%s' % got)
-    ok, ids, got = mom({'stratagem_cooldown.percent': '50%'},
+    ok, ids, got = mom({'stratagem_cooldown.percent': 50},
                        dict(tank=624.0, mech=420.0, laser=300.0),
                        config={'cooldown': 'yes', 'percent': 80, 'red': 'no', 'blue': 'vehicles',
                                'green': 'no'})
