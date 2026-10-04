@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.4.1',status='starting',errors=0}
+local M={version='2.4.2',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -176,9 +176,13 @@ local function conf()
         pcall(function()
             local w=io.open(CFG,'w')
             if w then
-                w:write('cooldown=yes\npercent=50\nmin_cooldown=60\nuses_add=0\nuses_unlimited=no\n')
-                w:write('red=yes\norbital=yes\neagle=yes\n')
-                w:write('blue=yes\nblue_scope=all\ngreen=yes\nmissions=no\n')
+                w:write('; 把不想改的行用 ; 或 # 注释掉 / comment out what you do not want\n')
+                w:write('cooldown=yes\npercent=80\nmin_cooldown=60\n')
+                w:write('; red: off | yes (orbital+eagle) | orbital | eagle ; orbital= / eagle= refine it\n')
+                w:write('red=no\n')
+                w:write('; blue: off | vehicles | mechs | both | all\n')
+                w:write('blue=vehicles\ngreen=no\nmissions=no\n')
+                w:write('uses_add=0\nuses_unlimited=no\neagle_uses_add=0\n')
                 w:write('stable_s=1\nuptime_s=0\nprobe=no\n')
                 w:close()
             end
@@ -237,9 +241,35 @@ local function conf()
         for _,k in ipairs({'red','orbital','eagle','blue','green','missions','uses_unlimited','eagle_uses_unlimited'}) do
             v=line:match('^%s*'..k..'%s*=%s*(%a+)%s*$')
             if v then
-                d[k]=(v=='yes' or v=='true' or v=='on')
-                d.explicit=d.explicit or {} d.explicit[k]=true
-                d.explicit_vals=d.explicit_vals or {} d.explicit_vals[k]=d[k]
+                local on=(v=='yes' or v=='true' or v=='on')
+                if k=='red' then
+                    -- red is a group: one word selects the whole family, and a later
+                    -- orbital=/eagle= line refines it (that is what the builder emits)
+                    if v=='orbital' then d.red,d.orbital,d.eagle=true,true,false
+                    elseif v=='eagle' then d.red,d.orbital,d.eagle=true,false,true
+                    elseif v=='both' then d.red,d.orbital,d.eagle=true,true,true
+                    else d.red=on d.orbital=on d.eagle=on end
+                    d.explicit=d.explicit or {}
+                    d.explicit.red=true d.explicit.orbital=true d.explicit.eagle=true
+                    d.explicit_vals=d.explicit_vals or {}
+                    d.explicit_vals.red=d.red
+                    d.explicit_vals.orbital=d.orbital
+                    d.explicit_vals.eagle=d.eagle
+                elseif k=='blue' then
+                    -- blue carries its scope word directly: blue=all / blue=vehicles ...
+                    if v=='off' or v=='false' then d.blue=false
+                    elseif v=='vehicles' or v=='mechs' or v=='both' or v=='all' then
+                        d.blue=true d.blue_scope=v
+                        d.explicit=d.explicit or {} d.explicit.blue_scope=true
+                        d.explicit_vals=d.explicit_vals or {} d.explicit_vals.blue_scope=v
+                    else d.blue=on end
+                    d.explicit=d.explicit or {} d.explicit.blue=true
+                    d.explicit_vals=d.explicit_vals or {} d.explicit_vals.blue=d.blue
+                else
+                    d[k]=on
+                    d.explicit=d.explicit or {} d.explicit[k]=true
+                    d.explicit_vals=d.explicit_vals or {} d.explicit_vals[k]=d[k]
+                end
             end
         end
         v=line:match('^%s*manager_db%s*=%s*(.+)$')
