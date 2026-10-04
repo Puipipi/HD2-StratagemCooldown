@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='3.0.0',status='starting',errors=0}
+local M={version='3.1.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1480,7 +1480,7 @@ end
 -- Every block with more than two states is therefore a choice whose value is an index.
 -- Exact numbers the list cannot express stay in config.txt (percent=65, uses_add=7).
 local MOM_ID='stratagem_cooldown'
-local mom={host=nil,last_try=-99}
+local mom={host=nil,last_try=-99,last_rescan=-999}
 
 local function mom_pct(v)
     local n=tonumber((tostring(v):gsub('%%','')))
@@ -1632,6 +1632,14 @@ local function mom_register(host)
 end
 
 local function mom_tick(now)
+    -- 3.1.0: the game rebuilds its stratagem state (ship transitions, mission start),
+    -- which wipes the values written once at load - the log showed the writes landing
+    -- while the game still displayed the vanilla numbers. Re-derive and re-apply on a
+    -- timer; the existing "applied to" lines then show every re-assertion.
+    if (now or 0)-(mom.last_rescan or -999)>=10 then
+        mom.last_rescan=now
+        pcall(mom_rescan_safe)
+    end
     if mom.host then return end
     if (now or 0)-(mom.last_try or -99)<1 then return end
     mom.last_try=now
