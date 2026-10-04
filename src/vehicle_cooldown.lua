@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='2.8.0',status='starting',errors=0}
+local M={version='2.8.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1005,7 +1005,7 @@ local GROUP_MARKERS={red='red',blue='blue',green='green',cooldown='percent',
 local function apply_group_markers()
     local seen=0
     for axis,cfgkey in pairs(GROUP_MARKERS) do
-        local f=io.open(OPT_DIR..'opt_'..axis..'.txt','r')
+        local f=io.open(OPT_DIR..'grp_'..axis..'.txt','r')
         if f then
             local line=f:read('*l') or ''
             f:close()
