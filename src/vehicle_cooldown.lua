@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.8.1',status='starting',errors=0}
+local M={version='4.8.2',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1757,7 +1757,7 @@ local function mom_register(host)
     -- above keeps exactly one of them in charge.
     if not percent_ok then
         local fb={key='percent_fallback', kind='choice', label='Cooldown kept (percent)',
-                  choices={'100%','80%','50%'}, value='80%',
+                  choices={'100%','80%','50%','30%','10%'}, value='80%',
                   note='Fallback used when the slider is unavailable.',
                   apply=function(v) local p=mom_pct(v) if p then cfg.percent=p end end}
         local spec={mod='Stratagem Cooldown',label=fb.label,description=fb.note,
