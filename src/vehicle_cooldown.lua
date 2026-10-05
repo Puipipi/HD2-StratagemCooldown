@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.7.1',status='starting',errors=0}
+local M={version='4.8.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1715,8 +1715,13 @@ local function mom_register(host)
             -- the others are ignored, so they can never fight each other.
             if o.kind=='slider' and not mom.slider_owner then mom.slider_owner=o.key end
             if o.key=='percent' then percent_ok=true end
-            pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
+            -- 4.8.0: the page works in the sandbox but not in the game, so record exactly
+            -- what the framework hands over (type and content) and whether it took our
+            -- callback at all. One launch then answers it instead of another guess.
+            local wired,witherr=pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
+                log(string.format('menu change <- %s: value=%s type=%s',o.key,tostring(value),type(value)))
                 local v=mom_value(o,value)
+                log(string.format('menu change -> %s resolved=%s (kind=%s)',o.key,tostring(v),tostring(o.kind)))
                 o.value=v
                 -- 4.6.0: only the rows that write cfg.percent compete for one setting
                 -- (the choice and the slider experiments). The colour / charge / Eagle rows
@@ -1742,6 +1747,7 @@ local function mom_register(host)
                     mom_rescan_safe()
                 end
             end)
+            if not wired then log('menu: on_change refused for '..o.key..': '..tostring(witherr)) end
         else
             rejected[#rejected+1]=string.format('%s (%s): %s',o.key,o.kind,
                                                 tostring(ok and why or res))
