@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.8.2',status='starting',errors=0}
+local M={version='4.8.3',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1783,6 +1783,25 @@ local function mom_register(host)
         n,#MOM_OPTS,MOM_ID))
     for _,why in ipairs(rejected) do log('Mod Options Menu refused: '..why) end
     local applied=0
+    -- 4.8.3: read what the framework saved BEFORE any push. The push used to run first and
+    -- wrote our defaults over the saved values, which is why every redeploy looked like the
+    -- settings had been reset.
+    if type(host.get)=='function' then
+        local restored=0
+        for _,o in ipairs(MOM_OPTS) do
+            local raw=host.get(MOM_ID..'.'..o.key)
+            if raw~=nil then
+                local v=mom_value(o,raw)
+                if v~=nil and v~=o.value then
+                    o.value=v
+                    if pcall(o.apply,v) then restored=restored+1 end
+                end
+            end
+        end
+        if restored>0 then
+            log(string.format('menu: restored %d saved value(s) before pushing',restored))
+        end
+    end
     -- 4.3.0: push the state we are actually running with back into the framework, so the
     -- page shows it instead of falling back to the default (the "grey but still clickable"
     -- report). Kinds differ: toggle takes a boolean, slider a number, choice an index.
