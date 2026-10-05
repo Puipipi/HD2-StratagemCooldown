@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.8.0',status='starting',errors=0}
+local M={version='4.8.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1447,14 +1447,15 @@ local function cooldown_write(cfg)
         cd.ours_uses=cd.ours_uses or {}
         cd.yielded=cd.yielded or {}
         cd.seen=cd.seen or {}
-        if cd.yielded[id] then break end
+        -- 4.8.1: no latching - the yield is decided from the value on every pass, so a
+        -- record whose value goes back to the original is taken over again (the report was
+        -- 10 s after the first use, then ~2 min because nobody restored it).
         -- 4.7.0: never write to a record we cannot recognise. Reading the name back and
         -- comparing it with what the scan saw catches a stale or reused address (mission
         -- transitions) before a single byte is written.
         do
             local nm=read_cstr and read_cstr(cur.ptr+0x10) or nil
             if nm and rec.name and nm~=rec.name then
-                cd.yielded[id]=true
                 log(string.format('skipping %d: the record now holds %s (expected %s) - not writing',
                     id,tostring(nm),tostring(rec.name)))
                 break
@@ -1473,7 +1474,6 @@ local function cooldown_write(cfg)
                and not (cur_us and (cd.ours_uses[id] or {})[cur_us])
                and not (cur_co and rec.vanilla and math.abs(cur_co-rec.vanilla)<0.01)
                and not (cur_us and cur_us==rec.uses_vanilla) then
-                cd.yielded[id]=true
                 log(string.format('yielding %d %s: its value changes on its own (%s -> %s) - a shared/squad cooldown or the host owns it, leaving it alone',
                     id,tostring(rec.name),tostring(seen.co or seen.uses),tostring(cur_co or cur_us)))
                 break
@@ -1497,7 +1497,6 @@ local function cooldown_write(cfg)
                 end
             end
             if foreign then
-                cd.yielded[id]=true
                 log(string.format('yielding %d %s: %s - another addon is editing it, ours would be %s (left alone)',
                     id,tostring(rec.name),foreign,tostring(rec.target or rec.uses_target)))
                 break
