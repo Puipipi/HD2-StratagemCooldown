@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.2.0',status='starting',errors=0}
+local M={version='4.1.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1443,38 +1443,6 @@ local function cooldown_write(cfg)
         local raw=read_at(cur.ptr,REC_READ)
         if not raw then return false,'record unreadable during write @'..id end
         local offs=(rec.target_bits and rec.offs) or {}
-        -- 4.2.0 lowest priority: another addon (the custom-supply mod edits the blue
-        -- stratagem 医疗补给) may own this record. A field is foreign when it is neither
-        -- what we want, nor the original value, nor anything we wrote ourselves.
-        cd.ours=cd.ours or {}
-        cd.ours_uses=cd.ours_uses or {}
-        cd.yielded=cd.yielded or {}
-        if cd.yielded[id] then goto next_record end
-        do
-            local mine=cd.ours[id] or {}
-            local foreign=nil
-            if rec.target_bits then
-                for _,off in ipairs(offs) do
-                    local b=u32_at(raw,off+1)
-                    if b~=desired and b~=f32_bits(rec.vanilla) and not mine[b] then
-                        foreign=string.format('cooldown 0x%X now %s',off,tostring(f32_from_bits(b)))
-                    end
-                end
-            end
-            if not foreign and rec.uses_target then
-                local cu=i32_at(raw,OFF_USES+1)
-                local mu=cd.ours_uses[id] or {}
-                if cu~=rec.uses_target and cu~=rec.uses_vanilla and not mu[cu] then
-                    foreign=string.format('charges now %s',tostring(cu))
-                end
-            end
-            if foreign then
-                cd.yielded[id]=true
-                log(string.format('yielding %d %s: %s - another addon is editing it, ours would be %s (left alone)',
-                    id,tostring(rec.name),foreign,tostring(rec.target or rec.uses_target)))
-                goto next_record
-            end
-        end
         for _,off in ipairs(offs) do
             local bits=u32_at(raw,off+1)
             if bits~=desired then
@@ -1482,7 +1450,6 @@ local function cooldown_write(cfg)
                     return false,string.format('write/verify failed @%d+0x%X',id,off)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=bits,id=id}
-                cd.ours[id]=cd.ours[id] or {} cd.ours[id][desired]=true
                 patched[#patched+1]=string.format('%d+0x%X',id,off)
             end
         end
@@ -1494,12 +1461,10 @@ local function cooldown_write(cfg)
                     return false,string.format('charges write failed @%d+0x%X',id,OFF_USES)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=OFF_USES,bits=cur_uses,id=id}
-                cd.ours_uses[id]=cd.ours_uses[id] or {} cd.ours_uses[id][rec.uses_target]=true
                 patched[#patched+1]=string.format('%d+0x%X(charges %s->%s)',id,OFF_USES,
                     tostring(rec.uses_vanilla),tostring(rec.uses_target))
             end
         end
-        ::next_record::
     end
     if #patched>0 then
         log('patched offsets: '..table.concat(patched,', '))
