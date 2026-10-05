@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.5.0',status='starting',errors=0}
+local M={version='4.6.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1717,8 +1717,17 @@ local function mom_register(host)
             pcall(host.on_change,MOM_ID..'.'..o.key,function(value)
                 local v=mom_value(o,value)
                 o.value=v
-                local owned=(o.kind=='slider') and (mom.slider_owner==o.key)
-                            or (o.kind~='slider' and not mom.slider_owner)
+                -- 4.6.0: only the rows that write cfg.percent compete for one setting
+                -- (the choice and the slider experiments). The colour / charge / Eagle rows
+                -- must never be gated by that rule - that is what made the page look dead.
+                local pct_row=(o.key=='percent' or o.key=='percent_slider'
+                               or o.key=='percent_number' or o.key=='percent_int'
+                               or o.key=='percent_fallback')
+                local owned=true
+                if pct_row then
+                    owned=((o.kind=='slider') and (mom.slider_owner==o.key))
+                          or ((o.kind~='slider') and (not mom.slider_owner))
+                end
                 if not owned then
                     log('menu: '..o.key..' = '..tostring(v)..' (not applied: '..
                         tostring(mom.slider_owner or 'the choice')..' owns this setting)')
