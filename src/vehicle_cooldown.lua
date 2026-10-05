@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.3.0',status='starting',errors=0}
+local M={version='4.4.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1501,7 +1501,9 @@ local function cooldown_write(cfg)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=bits,id=id}
                 cd.ours[id]=cd.ours[id] or {} cd.ours[id][desired]=true
-                patched[#patched+1]=string.format('%d+0x%X',id,off)
+                local backb=u32_at(read_at(cur.ptr,REC_READ) or raw,off+1)
+                patched[#patched+1]=string.format('%d+0x%X%s',id,off,
+                    (backb==desired) and '' or ' READBACK-MISMATCH')
             end
         end
         -- charges (+0x50): only for records that really are limited
@@ -1513,12 +1515,45 @@ local function cooldown_write(cfg)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=OFF_USES,bits=cur_uses,id=id}
                 cd.ours_uses[id]=cd.ours_uses[id] or {} cd.ours_uses[id][rec.uses_target]=true
-                patched[#patched+1]=string.format('%d+0x%X(charges %s->%s)',id,OFF_USES,
-                    tostring(rec.uses_vanilla),tostring(rec.uses_target))
+                -- 4.4.0: the cooldown field only took effect once every mirroring field was
+                -- written too (2.2.2's lesson). The charge count never had that treatment, so
+                -- patch every other 4-byte field holding the same original count as well.
+                local mirrors=0
+                for off=0,REC_READ-4,4 do
+                    if off~=OFF_USES then
+                        local v=i32_at(raw,off+1)
+                        if v==rec.uses_vanilla then
+                            if write4(cur.ptr+off,rec.uses_target) then
+                                cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=v,id=id}
+                                mirrors=mirrors+1
+                            end
+                        end
+                    end
+                end
+                local back=i32_at(read_at(cur.ptr,REC_READ) or raw,OFF_USES+1)
+                patched[#patched+1]=string.format('%d+0x%X(charges %s->%s readback=%s mirrors=%d)',
+                    id,OFF_USES,tostring(rec.uses_vanilla),tostring(rec.uses_target),
+                    tostring(back),mirrors)
             end
         end
         until true
         cd.seen[id]={co=rec.target_bits and f32_from_bits(desired) or nil,uses=rec.uses_target}
+    end
+    -- 4.4.0 probe: one line per target with everything a report needs (offsets, values,
+    -- which mirrors exist). Cheap, printed once per write pass.
+    if not cd.probed_once and next(cd.targets) then
+        cd.probed_once=true
+        local rows={}
+        for id,rec in pairs(cd.targets) do
+            rows[#rows+1]=string.format('%d %s[%s] co=%s->%s offs=%s uses=%s->%s',
+                id,tostring(rec.name),tostring(rec.kind),tostring(rec.vanilla),
+                rec.target and tostring(rec.target) or '-',
+                (rec.offs and #rec.offs>0) and table.concat((function()
+                    local t={} for _,o in ipairs(rec.offs) do t[#t+1]=string.format('0x%X',o) end
+                    return t end)(),'+') or '-',
+                tostring(rec.uses_vanilla),tostring(rec.uses_target))
+        end
+        log('probe (preconditions): '..table.concat(rows,' | '))
     end
     if #patched>0 then
         log('patched offsets: '..table.concat(patched,', '))
