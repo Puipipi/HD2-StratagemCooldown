@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.6.0',status='starting',errors=0}
+local M={version='4.7.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1448,6 +1448,18 @@ local function cooldown_write(cfg)
         cd.yielded=cd.yielded or {}
         cd.seen=cd.seen or {}
         if cd.yielded[id] then break end
+        -- 4.7.0: never write to a record we cannot recognise. Reading the name back and
+        -- comparing it with what the scan saw catches a stale or reused address (mission
+        -- transitions) before a single byte is written.
+        do
+            local nm=read_cstr and read_cstr(cur.ptr+0x10) or nil
+            if nm and rec.name and nm~=rec.name then
+                cd.yielded[id]=true
+                log(string.format('skipping %d: the record now holds %s (expected %s) - not writing',
+                    id,tostring(nm),tostring(rec.name)))
+                break
+            end
+        end
         do
             local cur_co=nil
             if rec.target_bits and rec.offs and rec.offs[1] then
@@ -1810,14 +1822,10 @@ local function mom_register(host)
 end
 
 local function mom_tick(now)
-    -- 3.1.0: the game rebuilds its stratagem state (ship transitions, mission start),
-    -- which wipes the values written once at load - the log showed the writes landing
-    -- while the game still displayed the vanilla numbers. Re-derive and re-apply on a
-    -- timer; the existing "applied to" lines then show every re-assertion.
-    if (now or 0)-(mom.last_rescan or -999)>=10 then
-        mom.last_rescan=now
-        pcall(mom_rescan_safe)
-    end
+    -- 4.7.0: no periodic re-write. Writing on a timer meant writing during mission
+    -- transitions, when the record addresses can be stale - that corrupts the game and
+    -- was the crash after changing a menu value and entering a game. A re-scan now only
+    -- happens when a menu change asks for one.
     if mom.host then return end
     if (now or 0)-(mom.last_try or -99)<1 then return end
     mom.last_try=now
