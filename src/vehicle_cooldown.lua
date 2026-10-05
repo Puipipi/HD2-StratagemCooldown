@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.1.0',status='starting',errors=0}
+local M={version='4.3.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1442,6 +1442,56 @@ local function cooldown_write(cfg)
         if not cur or cur.ptr~=rec.ptr then return false,'record moved during write @'..id end
         local raw=read_at(cur.ptr,REC_READ)
         if not raw then return false,'record unreadable during write @'..id end
+        -- 4.3.0 yield rules (repeat/break, not goto: the goto version skipped every write)
+        cd.ours=cd.ours or {}
+        cd.ours_uses=cd.ours_uses or {}
+        cd.yielded=cd.yielded or {}
+        cd.seen=cd.seen or {}
+        if cd.yielded[id] then break end
+        do
+            local cur_co=nil
+            if rec.target_bits and rec.offs and rec.offs[1] then
+                cur_co=f32_from_bits(u32_at(raw,rec.offs[1]+1))
+            end
+            local cur_us=rec.uses_target and i32_at(raw,OFF_USES+1) or nil
+            local seen=cd.seen[id]
+            if seen and ((cur_co and seen.co and math.abs(cur_co-seen.co)>0.01)
+                      or (cur_us and seen.uses and cur_us~=seen.uses))
+               and not (cur_co and (cd.ours[id] or {})[f32_bits(cur_co)])
+               and not (cur_us and (cd.ours_uses[id] or {})[cur_us])
+               and not (cur_co and rec.vanilla and math.abs(cur_co-rec.vanilla)<0.01)
+               and not (cur_us and cur_us==rec.uses_vanilla) then
+                cd.yielded[id]=true
+                log(string.format('yielding %d %s: its value changes on its own (%s -> %s) - a shared/squad cooldown or the host owns it, leaving it alone',
+                    id,tostring(rec.name),tostring(seen.co or seen.uses),tostring(cur_co or cur_us)))
+                break
+            end
+            local mine=cd.ours[id] or {}
+            local mu=cd.ours_uses[id] or {}
+            local foreign=nil
+            if rec.target_bits and rec.vanilla then
+                local vb=f32_bits(rec.vanilla)
+                for _,off in ipairs(rec.offs or {}) do
+                    local b=u32_at(raw,off+1)
+                    if b~=desired and b~=vb and not mine[b] then
+                        foreign=string.format('cooldown is %s',tostring(f32_from_bits(b)))
+                    end
+                end
+            end
+            if (not foreign) and rec.uses_target then
+                local cu=i32_at(raw,OFF_USES+1)
+                if cu~=rec.uses_target and cu~=rec.uses_vanilla and not mu[cu] then
+                    foreign=string.format('charges are %s',tostring(cu))
+                end
+            end
+            if foreign then
+                cd.yielded[id]=true
+                log(string.format('yielding %d %s: %s - another addon is editing it, ours would be %s (left alone)',
+                    id,tostring(rec.name),foreign,tostring(rec.target or rec.uses_target)))
+                break
+            end
+        end
+        repeat
         local offs=(rec.target_bits and rec.offs) or {}
         for _,off in ipairs(offs) do
             local bits=u32_at(raw,off+1)
@@ -1450,6 +1500,7 @@ local function cooldown_write(cfg)
                     return false,string.format('write/verify failed @%d+0x%X',id,off)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=bits,id=id}
+                cd.ours[id]=cd.ours[id] or {} cd.ours[id][desired]=true
                 patched[#patched+1]=string.format('%d+0x%X',id,off)
             end
         end
@@ -1461,10 +1512,13 @@ local function cooldown_write(cfg)
                     return false,string.format('charges write failed @%d+0x%X',id,OFF_USES)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=OFF_USES,bits=cur_uses,id=id}
+                cd.ours_uses[id]=cd.ours_uses[id] or {} cd.ours_uses[id][rec.uses_target]=true
                 patched[#patched+1]=string.format('%d+0x%X(charges %s->%s)',id,OFF_USES,
                     tostring(rec.uses_vanilla),tostring(rec.uses_target))
             end
         end
+        until true
+        cd.seen[id]={co=rec.target_bits and f32_from_bits(desired) or nil,uses=rec.uses_target}
     end
     if #patched>0 then
         log('patched offsets: '..table.concat(patched,', '))
@@ -1679,6 +1733,20 @@ local function mom_register(host)
         n,#MOM_OPTS,MOM_ID))
     for _,why in ipairs(rejected) do log('Mod Options Menu refused: '..why) end
     local applied=0
+    -- 4.3.0: push the state we are actually running with back into the framework, so the
+    -- page shows it instead of falling back to the default (the "grey but still clickable"
+    -- report). Kinds differ: toggle takes a boolean, slider a number, choice an index.
+    if type(host.set)=='function' then
+        local pushed=0
+        for _,o in ipairs(MOM_OPTS) do
+            local v
+            if o.kind=='toggle' then v=(o.value==true)
+            elseif o.kind=='slider' then v=tonumber(o.value) or 80
+            else v=mom_index(o) end
+            if pcall(host.set,MOM_ID..'.'..o.key,v) then pushed=pushed+1 end
+        end
+        if pushed>0 then log(string.format('menu: pushed %d value(s) back to the framework',pushed)) end
+    end
     if type(host.get)=='function' then
         for _,o in ipairs(MOM_OPTS) do
             local raw=host.get(MOM_ID..'.'..o.key)
