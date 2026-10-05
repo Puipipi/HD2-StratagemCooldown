@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.7.0',status='starting',errors=0}
+local M={version='4.7.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1527,25 +1527,14 @@ local function cooldown_write(cfg)
                 end
                 cd.written[#cd.written+1]={ptr=cur.ptr,off=OFF_USES,bits=cur_uses,id=id}
                 cd.ours_uses[id]=cd.ours_uses[id] or {} cd.ours_uses[id][rec.uses_target]=true
-                -- 4.4.0: the cooldown field only took effect once every mirroring field was
-                -- written too (2.2.2's lesson). The charge count never had that treatment, so
-                -- patch every other 4-byte field holding the same original count as well.
-                local mirrors=0
-                for off=0,REC_READ-4,4 do
-                    if off~=OFF_USES then
-                        local v=i32_at(raw,off+1)
-                        if v==rec.uses_vanilla then
-                            if write4(cur.ptr+off,rec.uses_target) then
-                                cd.written[#cd.written+1]={ptr=cur.ptr,off=off,bits=v,id=id}
-                                mirrors=mirrors+1
-                            end
-                        end
-                    end
-                end
+                -- 4.7.1: the mirrored charge writes are gone. The mirror trick was proven for
+                -- cooldowns in 2.2.2, never for counts: a field that merely shares the number got
+                -- overwritten, which corrupts the record and crashed on mission entry. The count is
+                -- written at +0x50 only; the readback and the probe stay.
                 local back=i32_at(read_at(cur.ptr,REC_READ) or raw,OFF_USES+1)
-                patched[#patched+1]=string.format('%d+0x%X(charges %s->%s readback=%s mirrors=%d)',
+                patched[#patched+1]=string.format('%d+0x%X(charges %s->%s readback=%s)',
                     id,OFF_USES,tostring(rec.uses_vanilla),tostring(rec.uses_target),
-                    tostring(back),mirrors)
+                    tostring(back))
             end
         end
         until true
