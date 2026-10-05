@@ -111,7 +111,7 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.4.0',status='starting',errors=0}
+local M={version='4.5.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1597,17 +1597,17 @@ end
 
 local MOM_OPTS={
     {key='percent', kind='slider', type='slider', min=10, max=100, step=5,
-     label='冷却保留百分比 / Cooldown kept',
+     label='Cooldown kept (percent)',
      value=80,
-     note='任何非整数百分比写在 config.txt（percent=65）。',
+     note='Any percentage goes in config.txt as percent=65.',
      apply=function(v)
          local n=mom_pct(v)
          if n then cfg.percent=n cfg.min_cooldown=(cfg.min_cooldown or 60) end
      end},
-    {key='red', kind='choice', label='红战备 / Red stratagems',
+    {key='red', kind='choice', label='Red stratagems',
      choices={'关闭 / Off','飞鹰 / Eagle','轨道 / Orbital','全部 / All'},
      value='关闭 / Off',
-     note='轨道与飞鹰（互斥，选一项）。',
+     note='Orbital and Eagle, pick one.',
      apply=function(v)
          if v:find('全部',1,true) or v:find('all',1,true) then
              cfg.red,cfg.orbital,cfg.eagle=true,true,true
@@ -1617,12 +1617,12 @@ local MOM_OPTS={
              cfg.red,cfg.orbital,cfg.eagle=true,false,true
          else cfg.red,cfg.orbital,cfg.eagle=false,false,false end
      end},
-    {key='blue', kind='choice', label='蓝战备 / Blue stratagems',
+    {key='blue', kind='choice', label='Blue stratagems',
      choices={'关闭 / Off','仅载具 / Vehicles only','仅机甲 / Mechs only',
               '仅载具和机甲 / Vehicles + Mechs','仅支援武器 / Support weapons only',
               '全部 / All'},
      value='仅载具 / Vehicles only',
-     note='蓝战备范围（互斥，选一项）。出厂默认：仅载具。',
+     note='Blue scope, pick one. Shipped default: vehicles only.',
      apply=function(v)
          if v:find('全部',1,true) or v:find('all',1,true) then
              cfg.blue=true cfg.blue_scope='all'
@@ -1636,13 +1636,13 @@ local MOM_OPTS={
              cfg.blue=true cfg.blue_scope='mechs'
          else cfg.blue=false end
      end},
-    {key='green', kind='toggle', label='绿战备 / Green stratagems', value=false,
-     note='哨戒、炮台、地雷/特斯拉/护盾 一起开关。',
+    {key='green', kind='toggle', label='Green stratagems', value=false,
+     note='Sentries, emplacements, mines, tesla and shields together.',
      apply=function(v) cfg.green=(v==true or v=='true' or v=='on') end},
-    {key='charges', kind='choice', label='次数增加 / Extra charges',
+    {key='charges', kind='choice', label='Extra charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5','无限制 / Unlimited'},
      value='不添加 / None',
-     note='有限次数战备；无限制在最右。自定义数量写在 config.txt（uses_add=7）。',
+     note='Limited-use stratagems; unlimited is rightmost. Any count: uses_add=7 in config.txt.',
      apply=function(v)
          if v:find('无限制',1,true) or v:find('unlimited',1,true) then
              cfg.uses_unlimited=true cfg.uses_add=0
@@ -1653,10 +1653,10 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
-    {key='eagle', kind='choice', label='飞鹰次数 / Eagle charges',
+    {key='eagle', kind='choice', label='Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
-     note='只作用于 EAGLE.*；自定义数量写 eagle_uses_add=。',
+     note='Eagle family only; any count: eagle_uses_add= in config.txt.',
      apply=function(v)
          if v:find('不添加',1,true) or v:find('none',1,true) then
              cfg.eagle_uses_add=0 cfg.eagle_uses_unlimited=false
@@ -1691,7 +1691,7 @@ local function mom_register(host)
     local n=0
     local percent_ok=false
     for _,o in ipairs(MOM_OPTS) do
-        local spec={mod='战备冷却 / Stratagem Cooldown',label=o.label,
+        local spec={mod='Stratagem Cooldown',label=o.label,
                     description=o.note or o.label,type=o.kind}
         if o.kind=='toggle' then
             spec.default=(o.value==true)
@@ -1741,11 +1741,11 @@ local function mom_register(host)
     -- under a fallback id so the cooldown percentage is always controllable. The owner rule
     -- above keeps exactly one of them in charge.
     if not percent_ok then
-        local fb={key='percent_fallback', kind='choice', label='冷却保留百分比 / Cooldown kept',
+        local fb={key='percent_fallback', kind='choice', label='Cooldown kept (percent)',
                   choices={'100%','80%','50%'}, value='80%',
-                  note='滑条不可用时的备用选项。',
+                  note='Fallback used when the slider is unavailable.',
                   apply=function(v) local p=mom_pct(v) if p then cfg.percent=p end end}
-        local spec={mod='战备冷却 / Stratagem Cooldown',label=fb.label,description=fb.note,
+        local spec={mod='Stratagem Cooldown',label=fb.label,description=fb.note,
                     type='choice',choices=fb.choices,default=mom_index(fb)}
         local ok,res,why=pcall(host.register_option,MOM_ID..'.'..fb.key,spec)
         if ok and res then
