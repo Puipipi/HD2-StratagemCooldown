@@ -111,7 +111,8 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
-local M={version='4.8.5',status='starting',errors=0}
+local is_host, host_role_cache
+local M={version='4.8.6',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -537,6 +538,7 @@ end
 local function in_scope(kind)
     -- 3.8.0: a nil family means "a stratagem this build does not know" - it must not be
     -- thrown away, it is handled by the inclusive rule at the bottom.
+    if kind=='shared' then return false end
     if kind=='shared' then return false end
     if not cfg.cooldown then return false end
     local scope=cfg.blue_scope or 'all'
@@ -1258,6 +1260,17 @@ local function cooldown_targets()
         elseif r then
             records=records+1
             local kind=classify(r.name)
+            -- 4.8.6: squad-shared / objective stratagems (HELLBOMB, RESUPPLY, ...) are only
+            -- handled when we are the host - see is_host() above.
+            do
+                local up=string.upper(tostring(r.name or ''))
+                if up:find('HELLBOMB',1,true) or up:find('RESUPPLY',1,true)
+                   or up:find('EXTRACTION',1,true) or up:find('TUTORIAL',1,true)
+                   or up:find('SOS BEACON',1,true) or up:find('REINFORCEMENT',1,true)
+                   or up:find('SEAF',1,true) or up:find('RAISE FLAG',1,true) then
+                    r.shared=true
+                end
+            end
             -- 4.8.5: squad-shared / objective stratagems are never touched. On a client our
             -- write does not take effect there, yet the local countdown still moves, so nobody
             -- can tell when the stratagem is really available (HELLBOMB id 31 and
@@ -1333,10 +1346,15 @@ local function cooldown_targets()
                         r.target_bits,r.target=target_bits_for(r.vanilla)
                     end
                     if r.shared then
-                        -- 4.8.5: the cooldown target was computed before the family was known, so
-                        -- a shared stratagem must drop it here as well - otherwise it is written.
-                        kind='shared'
-                        r.target_bits,r.target,r.uses_target=nil,nil,nil
+                        -- 4.8.6: on the host a shared stratagem is handled like any other; on a
+                        -- client (or when the role cannot be read) every target is dropped, because
+                        -- our write would not take effect while the local countdown still moved.
+                        if is_host()==true then
+                            r.host_shared=true
+                        else
+                            kind='shared'
+                            r.target_bits,r.target,r.uses_target=nil,nil,nil
+                        end
                     end
                     r.kind=kind
                     -- charges: +0x50 int32, -1 = unlimited
@@ -1347,7 +1365,7 @@ local function cooldown_targets()
                     end
                     r.uses_vanilla=cd.vanilla_uses[id]
                     r.uses_target=uses_target(r.uses_vanilla,kind)
-                    if kind=='shared' then r.uses_target=nil end   -- 4.8.5: counts too
+                    if kind=='shared' then r.uses_target=nil end   -- clients: counts too
                     if r.uses_target and not inscope then
                         -- only its charges change; leave its cooldown alone
                         r.charges_only=true
@@ -1713,6 +1731,37 @@ end
 
 local function mom_rescan_safe()
     if type(mom_rescan)=='function' then pcall(mom_rescan) end
+end
+
+-- 4.8.6: host or client? p2p_ping reads this from the engine
+-- (GameSession.peers / Network.peer_id / GameSession.game_session_host) with existence
+-- checks around every call; the same is done here. Shared/objective stratagems are written
+-- only when we are certainly the host - on a client our write does not take effect while the
+-- local countdown still moves, and an unreadable role is treated as a client.
+host_role_cache=nil
+function is_host()
+    if host_role_cache~=nil then return host_role_cache end
+    local ok,res=pcall(function()
+        local GS=rawget(_G,'GameSession')
+        local Net=rawget(_G,'Network')
+        if type(GS)~='table' or type(Net)~='table' then return nil end
+        local sess=nil
+        local mgr=rawget(_G,'Managers')
+        if type(mgr)=='table' and type(mgr.state)=='table' then
+            local st=mgr.state
+            sess=st.game_session or st.session or (type(st.game)=='table' and st.game.session) or nil
+        end
+        if sess==nil then return nil end
+        local peers=(type(GS.peers)=='function') and GS.peers(sess) or nil
+        local mine=Net.peer_id
+        local host=(type(GS.game_session_host)=='function') and GS.game_session_host(sess) or nil
+        if peers==nil or mine==nil then return nil end
+        if host~=nil then return tostring(host)==tostring(mine) end
+        return nil
+    end)
+    local r=(ok and res) or nil
+    if r~=nil then host_role_cache=r end
+    return r
 end
 
 local function mom_register(host)
