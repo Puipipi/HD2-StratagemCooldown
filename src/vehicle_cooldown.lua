@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.13',status='starting',errors=0}
+local M={version='4.9.14',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1299,8 +1299,6 @@ end
 -- this dump replaces guessing with measurement.
 local dump_done=false
 local function dump_fields_once()
-    apply_arrival_scale()
-    probe_watch()
     if dump_done then return end
     dump_done=true
     local n=0
@@ -1926,13 +1924,6 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
-    {key='drop', kind='slider', type='slider', min=10, max=100, step=5,
-     label='Landing time kept (%)', value=100,
-     note='Scales the arrival time fields; 100% changes nothing.',
-     apply=function(v) cfg.drop_kept=tonumber(v) or 100 end},
-    {key='eagle_drop', kind='toggle', label='Eagle window too', value=false,
-     note='Also applies the landing reduction to the Eagle family, shortening the shared in-flight window so the next Eagle is available sooner.',
-     apply=function(v) cfg.eagle_drop=(v==true) end},
     {key='eagle', kind='choice', label='Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
@@ -2212,7 +2203,6 @@ local function tick_cooldown()
     end
     if now-(cd.last_beat or 0)>=60 then
         cd.last_beat=now
-        dump_fields_once()
         log(string.format('heartbeat: state=%s phase=%s targets=%d scans=%d errors=%d uptime=%ds frames=%d',
             tostring(cd.state),tostring(M.phase),target_count(),cd.scans or 0,M.errors or 0,math.floor(up),frames))
     end
