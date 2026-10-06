@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.14',status='starting',errors=0}
+local M={version='4.9.15',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -581,7 +581,6 @@ end
 local function in_scope(kind)
     -- 3.8.0: a nil family means "a stratagem this build does not know" - it must not be
     -- thrown away, it is handled by the inclusive rule at the bottom.
-    if kind=='shared' then return false end
     if kind=='shared' then return false end
     if not cfg.cooldown then return false end
     local scope=cfg.blue_scope or 'all'
@@ -1557,15 +1556,13 @@ local function cooldown_targets()
                         r.target_bits,r.target=target_bits_for(r.vanilla)
                     end
                     if r.shared then
-                        -- 4.8.6: on the host a shared stratagem is handled like any other; on a
-                        -- client (or when the role cannot be read) every target is dropped, because
-                        -- our write would not take effect while the local countdown still moved.
-                        if is_host()==true then
-                            r.host_shared=true
-                        else
-                            kind='shared'
-                            r.target_bits,r.target,r.uses_target=nil,nil,nil
-                        end
+                        -- 4.9.15: no role gate. Wanted: as host our value applies; as client the
+                        -- host's value wins. That is exactly what the rewrite cap below does - a
+                        -- value the host keeps writing back is retried at most twice and then the
+                        -- record is yielded for good - and it needs no role detection, which proved
+                        -- unreliable on this build (the comparison returned false, so the host was
+                        -- treated as a client and shared stratagems were skipped entirely).
+                        r.host_shared=true
                     end
                     r.kind=kind
                     -- charges: +0x50 int32, -1 = unlimited
