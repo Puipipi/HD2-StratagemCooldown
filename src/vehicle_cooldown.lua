@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.15',status='starting',errors=0}
+local M={version='4.9.16',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -2304,12 +2304,18 @@ local function tick_cooldown()
                     -- priority, so the other addon wins.
                     rec.needs_rewrite=nil
                     rec.rewrite_tries=(rec.rewrite_tries or 0)+1
-                    if rec.rewrite_tries>2 then
+                    -- 4.9.16: a shared stratagem gets ONE try only. The host's value does reach the
+                    -- client (the engine-changed line proves it), so after our single attempt is
+                    -- overwritten we yield and the host's number stays in the record - which is what
+                    -- the client then shows, so a client knows when the host has it ready.
+                    local cap=rec.host_shared and 1 or 2
+                    if rec.rewrite_tries>cap then
                         cd.yielded=cd.yielded or {}
                         cd.yielded[id]=true
                         cd.targets[id]=nil
-                        log(string.format('yielding %d (%s) after %d rewrites - another addon owns it',
-                            id,tostring(rec.name),rec.rewrite_tries))
+                        log(string.format('yielding %d (%s) after %d rewrites - another addon owns it%s',
+                            id,tostring(rec.name),rec.rewrite_tries,
+                            rec.host_shared and ' (shared: the host value stays)' or ''))
                         break
                     end
                     -- only rewrite after the whole set has been stable again
