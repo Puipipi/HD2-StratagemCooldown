@@ -131,7 +131,8 @@ local function drop_candidates(rec,raw)
 end
 local is_host, host_role_cache
 local apply_arrival_scale
-local M={version='4.9.10',status='starting',errors=0}
+local WATCH_LINES=0
+local M={version='4.9.11',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1299,6 +1300,7 @@ end
 local dump_done=false
 local function dump_fields_once()
     apply_arrival_scale()
+    probe_watch()
     if dump_done then return end
     dump_done=true
     local n=0
@@ -1386,6 +1388,51 @@ function apply_arrival_scale()
         end
     end
     if n>0 then log(string.format('arrival scaled on %d record(s)',n)) end
+end
+
+-- 4.9.11 (read-only probe): which fields actually move? The engine reads a live copy of the
+-- call-in time somewhere, and that copy ticks down while a stratagem descends, whereas the
+-- definition field (0x34) does not. Sampling a few records per tick and logging only changed
+-- offsets finds it. Nothing is ever written here.
+local WATCH_SKIP={[0x00]=true,[0x04]=true,[0x10]=true}   -- id, hash, name pointer
+function probe_watch()   -- global on purpose: the call site lives in an outer scope
+    if WATCH_LINES>=400 then return end
+    local ids={}
+    for id in pairs(cd.targets or {}) do ids[#ids+1]=id end
+    if #ids==0 then return end
+    table.sort(ids)
+    cd.watch=cd.watch or {prev={}, cursor=1}
+    local prev=cd.watch.prev
+    local now=os.clock()
+    for k=0,4 do
+        local i=((cd.watch.cursor-1+k)%#ids)+1
+        local id=ids[i]
+        local r=rec_info(id)
+        local raw=r and r.ptr and read_at(r.ptr,REC_READ)
+        if raw then
+            local cur={}
+            for off=0,REC_READ-4,4 do
+                if not WATCH_SKIP[off] then
+                    local f=float_at(raw,off)
+                    if f then cur[off]=f end
+                end
+            end
+            local before=prev[id]
+            if before then
+                for off,v in pairs(cur) do
+                    local b=before[off]
+                    if b and math.abs(b-v)>0.001 and (b~=0 or v~=0) then
+                        WATCH_LINES=WATCH_LINES+1
+                        log(string.format('watch %d %s 0x%X %.4g->%.4g', id, tostring(r.name), off, b, v))
+                        if WATCH_LINES>=400 then break end
+                    end
+                end
+            end
+            prev[id]=cur
+        end
+        cd.watch.cursor=((cd.watch.cursor)%#ids)+1
+        if WATCH_LINES>=400 then break end
+    end
 end
 
 local function cooldown_targets()
