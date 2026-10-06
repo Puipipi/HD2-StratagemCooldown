@@ -131,7 +131,7 @@ local function drop_candidates(rec,raw)
 end
 local is_host, host_role_cache
 local apply_arrival_scale
-local M={version='4.9.9',status='starting',errors=0}
+local M={version='4.9.10',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1325,7 +1325,18 @@ local function f32_bits(v)
     b[0]=v
     return tonumber(ffi.cast('uint32_t *',b)[0])
 end
+-- 4.9.10: the call-in scaling is opt-in. Measured: writing 0x34 changes what the panel shows
+-- but not the landing itself, so the engine reads another copy of that value. It now only runs
+-- when arrival_offset.txt also contains the word "enable".
+local function arrival_enabled()
+    local f=io.open(ARRIVAL_CFG,'rb')
+    if not f then return false end
+    local text=f:read('*a')
+    f:close()
+    return type(text)=='string' and text:find('enable',1,true)~=nil
+end
 local function arrival_percent()
+    if not arrival_enabled() then return nil end
     local v=tonumber(cfg.arrival_percent) or tonumber(cfg.drop_kept) or 100
     if v<5 or v>=100 then return nil end
     return v
