@@ -112,7 +112,7 @@
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
 local is_host, host_role_cache
-local M={version='4.8.6',status='starting',errors=0}
+local M={version='4.8.7',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1602,6 +1602,18 @@ local function cooldown_write(cfg)
                 tostring(rec.uses_vanilla),tostring(rec.uses_target))
         end
         log('probe (preconditions): '..table.concat(rows,' | '))
+        -- 4.8.7 (read-only discovery): dump every f32 field of every target once, so the
+        -- call-in / drop time field can be identified from a real log instead of guessed.
+        -- Known anchors: charges at 0x50 (int), cooldown at 0x68 (f32).
+        for id,rec in pairs(cd.targets) do
+            local r2=rec_info(id)
+            if r2 and r2.ptr then
+                local raw2=read_at(r2.ptr,REC_READ)
+                if raw2 then
+                    log(string.format('fields %d %s: %s', id, tostring(rec.name), field_map(raw2)))
+                end
+            end
+        end
     end
     if #patched>0 then
         log('patched offsets: '..table.concat(patched,', '))
