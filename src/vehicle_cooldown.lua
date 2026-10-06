@@ -111,8 +111,26 @@
 --   M.records / M.matched / M.rejects / M.bad_slots / M.scans / M.relocates
 local KEY='HD2VehicleCooldown'
 if rawget(_G,KEY) then return rawget(_G,KEY) end
+local DROP_SCALE=0.7            -- 4.8.8: the game's own booster multiplier
+local DROP_TIMES={[0]=true,[2]=true,[5]=true,[10]=true,[15]=true,[20]=true,[25]=true,
+                  [30]=true,[45]=true,[60]=true,[90]=true,[120]=true}
+local DROP_SKIP={[0x00]=true,[0x04]=true,[0x10]=true,[0x50]=true,[0x68]=true}
+-- collect the offsets whose f32 value is an arrival time the game uses
+local function drop_candidates(rec,raw)
+    local out={}
+    if not raw or not rec or not rec.offsets then return out end
+    for off=0,REC_READ-4,4 do
+        if not DROP_SKIP[off] then
+            local v=float_at(raw,off)
+            if v and DROP_TIMES[math.floor(v+0.5)] and math.abs(v-math.floor(v+0.5))<0.01 then
+                out[#out+1]=off
+            end
+        end
+    end
+    return out
+end
 local is_host, host_role_cache
-local M={version='4.8.7',status='starting',errors=0}
+local M={version='4.8.8',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1260,6 +1278,16 @@ local function cooldown_targets()
         elseif r then
             records=records+1
             local kind=classify(r.name)
+            -- 4.8.8: arrival-time candidates for this record (logged once per record)
+            r.drop_offs=drop_candidates(r, raw)
+            if #r.drop_offs>0 then
+                local t={}
+                for _,o in ipairs(r.drop_offs) do
+                    t[#t+1]=string.format('0x%X=%s',o,tostring(float_at(raw,o)))
+                end
+                log(string.format('drop candidates %d %s: %s%s', id, tostring(r.name),
+                    table.concat(t,','), cfg.drop_scale and ' (scaling to 0.7)' or ' (dry run)'))
+            end
             -- 4.8.6: squad-shared / objective stratagems (HELLBOMB, RESUPPLY, ...) are only
             -- handled when we are the host - see is_host() above.
             do
@@ -1713,6 +1741,9 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
+    {key='drop', kind='toggle', label='Faster landing (experimental)', value=false,
+     note='Scales arrival time fields to 0.7 like the game booster; off by default.',
+     apply=function(v) cfg.drop_scale=(v==true) end},
     {key='eagle', kind='choice', label='Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
