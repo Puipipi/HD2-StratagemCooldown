@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.11',status='starting',errors=0}
+local M={version='4.9.13',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1977,13 +1977,13 @@ function is_host()
         local GS=rawget(_G,'GameSession')
         local Net=rawget(_G,'Network')
         if type(GS)~='table' or type(Net)~='table' then return nil end
-        local sess=nil
-        local mgr=rawget(_G,'Managers')
-        if type(mgr)=='table' and type(mgr.state)=='table' then
-            local st=mgr.state
-            sess=st.game_session or st.session or (type(st.game)=='table' and st.game.session) or nil
-        end
+        -- 4.9.13: same preconditions p2p_ping checks before it trusts the data
+        if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return nil end
+        if type(GS.peers)~='function' then return nil end
+        -- 4.9.13: the session comes from Network.game_session, exactly as p2p_ping reads it
+        local sess=Net.game_session
         if sess==nil then return nil end
+        if type(GS.in_session)=='function' and GS.in_session(sess)~=true then return nil end
         local peers=(type(GS.peers)=='function') and GS.peers(sess) or nil
         local mine=Net.peer_id
         local host=(type(GS.game_session_host)=='function') and GS.game_session_host(sess) or nil
@@ -1992,7 +1992,28 @@ function is_host()
         return nil
     end)
     local r=(ok and res) or nil
-    if r~=nil then host_role_cache=r end
+    -- 4.9.13: host_mode.txt may force the role; an undecidable probe means host, and the yield
+    -- cap keeps a client honest (a host-owned value is rewritten at most twice, then yielded).
+    do
+        local f=io.open(HOME..'VehicleCooldown/host_mode.txt','rb')
+        if f then
+            local text=f:read('*a')
+            f:close()
+            if type(text)=='string' then
+                local t=text:lower()
+                if t:find('client',1,true) then r=false
+                elseif t:find('host',1,true) then r=true end
+            end
+        end
+    end
+    if r==nil then
+        if not cd.host_unknown_logged then
+            cd.host_unknown_logged=true
+            log('role undecided (p2p probe empty) - assuming host; a host-owned value wins by yielding')
+        end
+        r=true
+    end
+    host_role_cache=r
     return r
 end
 
