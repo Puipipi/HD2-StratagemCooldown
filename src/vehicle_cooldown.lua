@@ -130,7 +130,7 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.9.2',status='starting',errors=0}
+local M={version='4.9.3',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1265,6 +1265,28 @@ local function check_anchors()
     return ok,table.concat(notes,'; ')
 end
 
+-- 4.9.3 (read-only): a full f32 field snapshot of every record, taken BEFORE any gate or
+-- target decision, so the data is available exactly when something is wrong. The landing work
+-- used to assume an arrival time is stored as f32 integer seconds and found zero candidates;
+-- this dump replaces guessing with measurement.
+local dump_done=false
+local function dump_fields_once()
+    if dump_done then return end
+    dump_done=true
+    local n=0
+    for id=0,SCAN_IDS do
+        local ok,r=pcall(rec_info,id)
+        if ok and r and r.ptr and type(r.name)=='string' and #r.name>=4 then
+            local raw=read_at(r.ptr,REC_READ)
+            if raw then
+                log(string.format('fields %d %s: %s', id, r.name, field_map(raw)))
+                n=n+1
+            end
+        end
+    end
+    log(string.format('field dump complete: %d record(s)', n))
+end
+
 local function cooldown_targets()
     -- 4.9.1 fail-safe: the AOB pair can match an instruction with a different meaning after a
     -- game build change (executable 6AB382E4), resolving a plausible but wrong table; writing
@@ -2021,6 +2043,7 @@ local function tick_cooldown()
     end
     if now-(cd.last_beat or 0)>=60 then
         cd.last_beat=now
+        dump_fields_once()
         log(string.format('heartbeat: state=%s phase=%s targets=%d scans=%d errors=%d uptime=%ds frames=%d',
             tostring(cd.state),tostring(M.phase),target_count(),cd.scans or 0,M.errors or 0,math.floor(up),frames))
     end
