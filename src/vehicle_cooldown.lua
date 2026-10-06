@@ -130,7 +130,7 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.9.3',status='starting',errors=0}
+local M={version='4.9.4',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1227,9 +1227,12 @@ local function field_map(rec)
     local parts={}
     for off=0,REC_READ-4,4 do
         local f=float_at(rec,off)
-        if f and f>0.5 and f<200000 then
+        -- 4.9.4: include zeros. The arrival/drop time of the orbital laser is 0 (it lands
+        -- instantly) and that value is the discriminator for finding the field, so skipping
+        -- anything <= 0.5 hid exactly the number we are looking for.
+        if f and f>=0 and f<200000 then
             parts[#parts+1]=string.format('%X=%.4g',off,f)
-            if #parts>=24 then break end
+            if #parts>=40 then break end
         end
     end
     return table.concat(parts,' ')
