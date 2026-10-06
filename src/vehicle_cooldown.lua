@@ -131,7 +131,7 @@ local function drop_candidates(rec,raw)
 end
 local is_host, host_role_cache
 local apply_arrival_scale
-local M={version='4.9.7',status='starting',errors=0}
+local M={version='4.9.8',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1331,8 +1331,17 @@ local function arrival_percent()
 end
 function apply_arrival_scale()
     local kept=arrival_percent()
-    if not kept then return end
     local off=arrival_offset()
+    -- 4.9.8: say what was resolved, once per session. Otherwise "the percentage never arrived"
+    -- (nothing is scaled) and "the offset holds no plausible value" look identical in the log.
+    if not cd.arrival_plan_logged then
+        cd.arrival_plan_logged=true
+        local n=0
+        for _ in pairs(cd.targets or {}) do n=n+1 end
+        log(string.format('arrival plan: offset=0x%X kept=%s scaling=%s targets=%d',
+            off, kept and (tostring(kept)..'%') or 'unset', kept and 'on' or 'off', n))
+    end
+    if not kept then return end
     ARRIVAL_OFF=off
     local n=0
     for id,rec in pairs(cd.targets) do
