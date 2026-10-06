@@ -130,7 +130,7 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.9.0',status='starting',errors=0}
+local M={version='4.9.1',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1266,6 +1266,18 @@ local function check_anchors()
 end
 
 local function cooldown_targets()
+    -- 4.9.1 fail-safe: the AOB pair can match an instruction with a different meaning after a
+    -- game build change (executable 6AB382E4), resolving a plausible but wrong table; writing
+    -- through it crashed the game with 0xC0000005. The id+hash anchors decide whether the table
+    -- is really there - if they do not pass, nothing at all is written.
+    local anchors_ok,anchors_note=check_anchors()
+    if anchors_ok<2 then
+        if not cd.anchor_refused then
+            cd.anchor_refused=true
+            log('table failed its id+hash anchors ('..tostring(anchors_note)..') - not writing anything')
+        end
+        return {}
+    end
     local t={}
     local slots,records,matched,rejects,bad=0,0,0,0,0
     local cand={}
