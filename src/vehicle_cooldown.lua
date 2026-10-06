@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.19',status='starting',errors=0}
+local M={version='4.9.20',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1991,20 +1991,36 @@ function is_host()
         if peers==nil or mine==nil then return nil end
         -- 4.9.19: compare the host peer BY VALUE first (a string comparison alone can mismatch
         -- when the ids are formatted differently, which is what made a host look like a client).
-        if host~=nil then
-            if host==mine then return true end
-            if tostring(host)==tostring(mine) then return true end
-            return false
-        end
-        -- no host field: if the peers list holds nothing but us, we are the host
+        -- 4.9.20 (host first): a host usually has squadmates, so "no other peers" is not a host
+        -- signal in practice, and the API comparison can fail on differently formatted ids - which
+        -- would make a host look like a client and lose the shared reduction. So "client" needs
+        -- TWO independent confirmations: the game reports a host that is not us, AND the peers
+        -- list really contains that other peer. Anything weaker is treated as host.
+        local others=0
         do
-            local others=0
             for i=1,#peers do
                 local pr=peers[i]
                 if pr~=nil and pr~=mine and tostring(pr)~=tostring(mine) then others=others+1 end
             end
-            if others==0 then return true end
         end
+        if host~=nil then
+            local same=(host==mine) or (tostring(host)==tostring(mine))
+            if same then return true end
+            local host_present=false
+            for i=1,#peers do
+                local pr=peers[i]
+                if pr~=nil and (pr==host or tostring(pr)==tostring(host)) then host_present=true break end
+            end
+            if host_present and others>=1 then
+                if not cd.role_client_logged then
+                    cd.role_client_logged=true
+                    log('role: the game reports another peer as host and it is in the peers list - client mode')
+                end
+                return false
+            end
+            return true
+        end
+        if others==0 then return true end
         return nil
     end)
     local r=(ok and res) or nil
