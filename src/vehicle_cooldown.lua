@@ -131,7 +131,7 @@ local function drop_candidates(rec,raw)
 end
 local is_host, host_role_cache
 local apply_arrival_scale
-local M={version='4.9.8',status='starting',errors=0}
+local M={version='4.9.9',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -164,7 +164,8 @@ local function arrival_offset()
     if v==nil and cfg then v=cfg.arrival_offset end
     if type(v)=='string' then v=tonumber(v) end
     v=tonumber(v)
-    if not v or v<0 or v>0x100 then return 0x60 end
+    -- 4.9.9: 0x34 is the call-in time (500 kg = 3.166 s on the panel, the laser 0)
+    if not v or v<0 or v>0x100 then return 0x34 end
     return v
 end
 
@@ -1349,7 +1350,9 @@ function apply_arrival_scale()
             local cur=rec_info(id)
             local raw=cur and read_at(cur.ptr,REC_READ)
             local v=raw and float_at(raw,ARRIVAL_OFF)
-            if v and v>=0.5 and v<=600 then
+            -- 4.9.9: only call-in-like values; the same offset holds unrelated floats on
+            -- some records (a mortar read 7473, an FRV 3740, a health pack 1655)
+            if v and v>=0.5 and v<=60 then
                 local want=v*kept/100
                 if math.abs(want-v)>0.05 then
                     rec.arrival_done=true
