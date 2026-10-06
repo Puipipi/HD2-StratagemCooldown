@@ -130,7 +130,7 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.8.8',status='starting',errors=0}
+local M={version='4.9.0',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1285,8 +1285,11 @@ local function cooldown_targets()
                 for _,o in ipairs(r.drop_offs) do
                     t[#t+1]=string.format('0x%X=%s',o,tostring(float_at(raw,o)))
                 end
-                log(string.format('drop candidates %d %s: %s%s', id, tostring(r.name),
-                    table.concat(t,','), cfg.drop_scale and ' (scaling to 0.7)' or ' (dry run)'))
+                local kept=tonumber(cfg.drop_kept) or 100
+                local active=(kept<100) and (not (r.kind=='eagle') or cfg.eagle_drop==true)
+                log(string.format('drop candidates %d %s[%s]: %s%s', id, tostring(r.name),
+                    tostring(r.kind), table.concat(t,','),
+                    active and (' (scaling to '..kept..'%)') or ' (dry run)'))
             end
             -- 4.8.6: squad-shared / objective stratagems (HELLBOMB, RESUPPLY, ...) are only
             -- handled when we are the host - see is_host() above.
@@ -1741,9 +1744,13 @@ local MOM_OPTS={
              if n then cfg.uses_add=n cfg.uses_unlimited=false end
          end
      end},
-    {key='drop', kind='toggle', label='Faster landing (experimental)', value=false,
-     note='Scales arrival time fields to 0.7 like the game booster; off by default.',
-     apply=function(v) cfg.drop_scale=(v==true) end},
+    {key='drop', kind='slider', type='slider', min=10, max=100, step=5,
+     label='Landing time kept (%)', value=100,
+     note='Scales the arrival time fields; 100% changes nothing.',
+     apply=function(v) cfg.drop_kept=tonumber(v) or 100 end},
+    {key='eagle_drop', kind='toggle', label='Eagle window too', value=false,
+     note='Also applies the landing reduction to the Eagle family, shortening the shared in-flight window so the next Eagle is available sooner.',
+     apply=function(v) cfg.eagle_drop=(v==true) end},
     {key='eagle', kind='choice', label='Eagle charges',
      choices={'不添加 / None','+1','+2','+3','+4','+5'},
      value='不添加 / None',
@@ -1834,7 +1841,9 @@ local function mom_register(host)
             -- 4.0.1: several rows can write the same setting (the percentage exists as a
             -- choice and as slider experiments); the first slider that registers owns it and
             -- the others are ignored, so they can never fight each other.
-            if o.kind=='slider' and not mom.slider_owner then mom.slider_owner=o.key end
+            if o.kind=='slider' and o.key=='percent' and not mom.slider_owner then
+                mom.slider_owner=o.key
+            end
             if o.key=='percent' then percent_ok=true end
             -- 4.8.0: the page works in the sandbox but not in the game, so record exactly
             -- what the framework hands over (type and content) and whether it took our
