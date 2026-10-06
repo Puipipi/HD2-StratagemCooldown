@@ -130,7 +130,8 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.9.4',status='starting',errors=0}
+local apply_arrival_scale
+local M={version='4.9.6',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1274,6 +1275,7 @@ end
 -- this dump replaces guessing with measurement.
 local dump_done=false
 local function dump_fields_once()
+    apply_arrival_scale()
     if dump_done then return end
     dump_done=true
     local n=0
@@ -1288,6 +1290,55 @@ local function dump_fields_once()
         end
     end
     log(string.format('field dump complete: %d record(s)', n))
+end
+
+-- 4.9.6: landing reduction. The arrival / call-in time lives at 0x64 in the record: it is
+-- absent (0) on ORBITAL. LASER, which lands instantly, 5 s on MISSIONS. CALL IN DESTROYER and
+-- 10.5 s on the vehicles. The value is scaled by the landing slider (or config.txt's
+-- arrival_percent), once per record per session, with the result read back and logged.
+local ARRIVAL_OFF=0x64
+local function f32_bits(v)
+    local b=ffi.new('float[1]')
+    b[0]=v
+    return tonumber(ffi.cast('uint32_t *',b)[0])
+end
+local function arrival_percent()
+    local v=tonumber(cfg.arrival_percent) or tonumber(cfg.drop_kept) or 100
+    if v<5 or v>=100 then return nil end
+    return v
+end
+function apply_arrival_scale()
+    local kept=arrival_percent()
+    if not kept then return end
+    local n=0
+    for id,rec in pairs(cd.targets) do
+        if not rec.arrival_done then
+            local cur=rec_info(id)
+            local raw=cur and read_at(cur.ptr,REC_READ)
+            local v=raw and float_at(raw,ARRIVAL_OFF)
+            if v and v>=0.5 and v<=600 then
+                local want=v*kept/100
+                if math.abs(want-v)>0.05 then
+                    rec.arrival_done=true
+                    local ok=write4(cur.ptr+ARRIVAL_OFF,f32_bits(want))
+                    local raw2=read_at(cur.ptr,REC_READ)
+                    local back=raw2 and float_at(raw2,ARRIVAL_OFF)
+                    log(string.format('arrival 0x%X %d %s %.3g->%.3g (kept %d%%) readback=%s',
+                        ARRIVAL_OFF,id,tostring(rec.name),v,want,kept,
+                        back and string.format('%.3g',back) or 'none'))
+                    if (not ok) or (not back) or math.abs(back-want)>0.05 then
+                        log(string.format('arrival readback mismatch for %d - disabling landing scale',id))
+                        cfg.arrival_percent=100
+                        return
+                    end
+                    n=n+1
+                else
+                    rec.arrival_done=true
+                end
+            end
+        end
+    end
+    if n>0 then log(string.format('arrival scaled on %d record(s)',n)) end
 end
 
 local function cooldown_targets()
