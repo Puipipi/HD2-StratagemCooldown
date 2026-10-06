@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.17',status='starting',errors=0}
+local M={version='4.9.19',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1494,6 +1494,14 @@ local function cooldown_targets()
                     r.shared=true
                 end
             end
+            if r.shared and not cd.shared_logged then
+                cd.shared_logged=cd.shared_logged or {}
+                if not cd.shared_logged[id] then
+                    cd.shared_logged[id]=true
+                    log(string.format('shared %d %s: %s', id, tostring(r.name),
+                        r.shared_client and 'client - leaving it alone' or 'host - writing our value'))
+                end
+            end
             local inscope=in_scope(kind)
             -- the charges axis is independent of the colour blocks: when it is
             -- active it also looks at records with a finite charge count that the
@@ -1556,13 +1564,18 @@ local function cooldown_targets()
                         r.target_bits,r.target=target_bits_for(r.vanilla)
                     end
                     if r.shared then
-                        -- 4.9.15: no role gate. Wanted: as host our value applies; as client the
-                        -- host's value wins. That is exactly what the rewrite cap below does - a
-                        -- value the host keeps writing back is retried at most twice and then the
-                        -- record is yielded for good - and it needs no role detection, which proved
-                        -- unreliable on this build (the comparison returned false, so the host was
-                        -- treated as a client and shared stratagems were skipped entirely).
-                        r.host_shared=true
+                        -- 4.9.19: measured in game - the host's value never arrives in a client's
+                        -- record, so a client's own write (10% in the test) simply stayed and the two
+                        -- players disagreed. A client therefore writes nothing for shared stratagems:
+                        -- the record keeps what the game/host gives (vanilla for a vanilla host,
+                        -- which is consistent), while the host writes them normally.
+                        if is_host()==true then
+                            r.host_shared=true
+                        else
+                            r.shared_client=true
+                            kind='shared'
+                            r.target_bits,r.target,r.uses_target=nil,nil,nil
+                        end
                     end
                     r.kind=kind
                     -- charges: +0x50 int32, -1 = unlimited
@@ -1976,7 +1989,22 @@ function is_host()
         local mine=Net.peer_id
         local host=(type(GS.game_session_host)=='function') and GS.game_session_host(sess) or nil
         if peers==nil or mine==nil then return nil end
-        if host~=nil then return tostring(host)==tostring(mine) end
+        -- 4.9.19: compare the host peer BY VALUE first (a string comparison alone can mismatch
+        -- when the ids are formatted differently, which is what made a host look like a client).
+        if host~=nil then
+            if host==mine then return true end
+            if tostring(host)==tostring(mine) then return true end
+            return false
+        end
+        -- no host field: if the peers list holds nothing but us, we are the host
+        do
+            local others=0
+            for i=1,#peers do
+                local pr=peers[i]
+                if pr~=nil and pr~=mine and tostring(pr)~=tostring(mine) then others=others+1 end
+            end
+            if others==0 then return true end
+        end
         return nil
     end)
     local r=(ok and res) or nil
