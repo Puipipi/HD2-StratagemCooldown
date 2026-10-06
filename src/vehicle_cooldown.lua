@@ -130,7 +130,7 @@ local function drop_candidates(rec,raw)
     return out
 end
 local is_host, host_role_cache
-local M={version='4.9.1',status='starting',errors=0}
+local M={version='4.9.2',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -2119,7 +2119,20 @@ local function tick_cooldown()
             if M.phase~=ph then M.phase=ph end
             for id,rec in pairs(cd.targets) do
                 if rec.needs_rewrite then
+                    -- 4.9.2: stop fighting. A record whose value is written back by another addon
+                    -- used to be rewritten forever (record 77 / the supply addon, every 5 s). After
+                    -- two attempts the record is yielded for good - our changes have the lowest
+                    -- priority, so the other addon wins.
                     rec.needs_rewrite=nil
+                    rec.rewrite_tries=(rec.rewrite_tries or 0)+1
+                    if rec.rewrite_tries>2 then
+                        cd.yielded=cd.yielded or {}
+                        cd.yielded[id]=true
+                        cd.targets[id]=nil
+                        log(string.format('yielding %d (%s) after %d rewrites - another addon owns it',
+                            id,tostring(rec.name),rec.rewrite_tries))
+                        break
+                    end
                     -- only rewrite after the whole set has been stable again
                     if cd:snapshot_ok(now,cfg) then
                         local want=rec.target_bits or desired_bits()
