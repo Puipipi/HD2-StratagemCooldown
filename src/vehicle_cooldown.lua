@@ -131,7 +131,7 @@ local function drop_candidates(rec,raw)
 end
 local is_host, host_role_cache
 local apply_arrival_scale
-local M={version='4.9.6',status='starting',errors=0}
+local M={version='4.9.7',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -145,6 +145,28 @@ rawset(_G,KEY,M)
 
 local HOME=(os.getenv('LOCALAPPDATA') or os.getenv('TEMP') or '.')..'/CowboyBingus/Helldivers2/'
 local LOG=HOME..'Logs/VehicleCooldown.log'
+-- 4.9.7: the arrival / call-in field is switchable without a new build. The discriminator cannot
+-- separate 0x58/0x5c/0x60/0x64 (the instantly landing orbital laser is zero for all of them), and
+-- 0x64 turned out to be the vehicle/destroyer call-in only, while 0x60 covers 52 records with
+-- second-like values. Put one candidate (e.g. 0x60) in this file and restart.
+local ARRIVAL_CFG=HOME..'VehicleCooldown/arrival_offset.txt'
+local function arrival_offset()
+    local v=nil
+    local f=io.open(ARRIVAL_CFG,'rb')
+    if f then
+        local line=f:read('*l')
+        f:close()
+        if line then
+            line=line:gsub('%s','')
+            if line~='' then v=line end
+        end
+    end
+    if v==nil and cfg then v=cfg.arrival_offset end
+    if type(v)=='string' then v=tonumber(v) end
+    v=tonumber(v)
+    if not v or v<0 or v>0x100 then return 0x60 end
+    return v
+end
 
 -- 2.3.0: the config and log directories are created with kernel32 directly, so a
 -- blank machine gets a working log and no cmd.exe is ever spawned (the old
@@ -1296,7 +1318,7 @@ end
 -- absent (0) on ORBITAL. LASER, which lands instantly, 5 s on MISSIONS. CALL IN DESTROYER and
 -- 10.5 s on the vehicles. The value is scaled by the landing slider (or config.txt's
 -- arrival_percent), once per record per session, with the result read back and logged.
-local ARRIVAL_OFF=0x64
+local ARRIVAL_OFF=nil   -- resolved per session by arrival_offset()
 local function f32_bits(v)
     local b=ffi.new('float[1]')
     b[0]=v
@@ -1310,6 +1332,8 @@ end
 function apply_arrival_scale()
     local kept=arrival_percent()
     if not kept then return end
+    local off=arrival_offset()
+    ARRIVAL_OFF=off
     local n=0
     for id,rec in pairs(cd.targets) do
         if not rec.arrival_done then
