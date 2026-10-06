@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.16',status='starting',errors=0}
+local M={version='4.9.17',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -2303,13 +2303,36 @@ local function tick_cooldown()
                     -- two attempts the record is yielded for good - our changes have the lowest
                     -- priority, so the other addon wins.
                     rec.needs_rewrite=nil
+                    -- 4.9.17: decide by VALUE, not by count. The engine itself resets the table to
+                    -- vanilla (677 engine-changed lines; resupply 180, hellbomb 300), so an overwrite
+                    -- may be the engine rather than the host. Compare the current cooldown against our
+                    -- target and against vanilla, and act accordingly.
+                    local adopt=false
+                    do
+                        local cur=rec_info(id)
+                        local crawl=cur and read_at(cur.ptr,REC_READ)
+                        local cv=crawl and float_at(crawl,OFF_COOLDOWN)
+                        local tv=rec.target_bits and f32_from_bits(rec.target_bits) or nil
+                        if cv and tv and rec.vanilla then
+                            if math.abs(cv-tv)<0.05 then
+                                adopt=false                     -- already ours
+                            elseif math.abs(cv-rec.vanilla)<0.05 then
+                                adopt=false                     -- engine reset: rewrite ours
+                            else
+                                adopt=true                      -- a third value = the host's
+                            end
+                        end
+                    end
+                    if adopt then
+                        cd.yielded=cd.yielded or {}
+                        cd.yielded[id]=true
+                        cd.targets[id]=nil
+                        log(string.format('adopting host value for %d (%s): the record holds neither ours nor vanilla - leaving it alone',
+                            id,tostring(rec.name)))
+                        break
+                    end
                     rec.rewrite_tries=(rec.rewrite_tries or 0)+1
-                    -- 4.9.16: a shared stratagem gets ONE try only. The host's value does reach the
-                    -- client (the engine-changed line proves it), so after our single attempt is
-                    -- overwritten we yield and the host's number stays in the record - which is what
-                    -- the client then shows, so a client knows when the host has it ready.
-                    local cap=rec.host_shared and 1 or 2
-                    if rec.rewrite_tries>cap then
+                    if rec.rewrite_tries>8 then
                         cd.yielded=cd.yielded or {}
                         cd.yielded[id]=true
                         cd.targets[id]=nil
