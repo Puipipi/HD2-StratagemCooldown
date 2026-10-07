@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.24',status='starting',errors=0}
+local M={version='4.9.25',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1856,6 +1856,14 @@ function mom_rescan()
     if type(cd)=='table' then
         cd.state='observe'
         cd.targets={}
+        -- 4.9.25: a settings change is exactly the moment to reconsider every record we had given up
+        -- on. Leaving the remembered yields in place meant that records which still carried our own
+        -- earlier percentage stayed dropped for the rest of the session.
+        if cd.yielded and next(cd.yielded) then
+            log(string.format('settings changed: reconsidering %d record(s) that were left alone',
+                (function() local n=0 for _ in pairs(cd.yielded) do n=n+1 end return n end)()))
+        end
+        cd.yielded=nil
     end
     mom.last_rescan=0
 end
@@ -2461,14 +2469,24 @@ local function tick_cooldown()
                     -- may be the engine rather than the host. Compare the current cooldown against our
                     -- target and against vanilla, and act accordingly.
                     local adopt=false
+                    local cv,tv=nil,nil            -- hoisted: the log line below reports both
                     do
                         local cur=rec_info(id)
                         local crawl=cur and read_at(cur.ptr,REC_READ)
-                        local cv=crawl and float_at(crawl,OFF_COOLDOWN)
-                        local tv=rec.target_bits and f32_from_bits(rec.target_bits) or nil
+                        cv=crawl and float_at(crawl,OFF_COOLDOWN)
+                        tv=rec.target_bits and f32_from_bits(rec.target_bits) or nil
+                        -- 4.9.25: is the value one of OUR OWN earlier values? Changing the percentage on
+                        -- the in-game page leaves the old value in every record we had written (10% -> 60%
+                        -- in the 02:51 session). That value is neither the new target nor vanilla, so the
+                        -- 4.9.17 rule called it "the host's" and gave the record up for good: 31 records
+                        -- (FRV, walkers, orbitals, sentries, supply backpack ...) were lost in one session
+                        -- and never reduced again - which looked exactly like "the mod stopped working".
+                        local mine=(cv~=nil) and ((cd.ours[id] or {})[f32_bits(cv)]==true) or false
                         if cv and tv and rec.vanilla then
                             if math.abs(cv-tv)<0.05 then
                                 adopt=false                     -- already ours
+                            elseif mine then
+                                adopt=false                     -- ours from an earlier setting: rewrite
                             elseif math.abs(cv-rec.vanilla)<0.05 then
                                 adopt=false                     -- engine reset: rewrite ours
                             else
@@ -2480,8 +2498,9 @@ local function tick_cooldown()
                         cd.yielded=cd.yielded or {}
                         cd.yielded[id]=true
                         cd.targets[id]=nil
-                        log(string.format('adopting host value for %d (%s): the record holds neither ours nor vanilla - leaving it alone',
-                            id,tostring(rec.name)))
+                        log(string.format('adopting host value for %d (%s): now=%s ours=%s vanilla=%s - leaving it alone',
+                            id,tostring(rec.name),
+                            tostring(cv or '?'),tostring(tv or '-'),tostring(rec.vanilla)))
                         break
                     end
                     rec.rewrite_tries=(rec.rewrite_tries or 0)+1
