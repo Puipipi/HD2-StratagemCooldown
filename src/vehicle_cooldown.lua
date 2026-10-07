@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.25',status='starting',errors=0}
+local M={version='4.9.26',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1472,34 +1472,35 @@ local function cooldown_targets()
             end
             -- 4.8.6: squad-shared / objective stratagems (HELLBOMB, RESUPPLY, ...) are only
             -- handled when we are the host - see is_host() above.
+            -- 4.9.26: a personal family is never squad-shared, whatever else its name says.
+            -- VEHICLES. FAST RECON VEHICLE (RESUPPLY AUTO TURRET) is the mission's supply FRV
+            -- (the extra-slot mod calls it "M-103 Supply FRV", type=26). The word RESUPPLY in
+            -- its name made the old test treat it as the squad's resupply, so as a client its
+            -- 480 s cooldown was never touched - exactly what was reported from the game.
+            -- The two duplicate copies of this test that had accumulated are now one.
             do
                 local up=string.upper(tostring(r.name or ''))
-                if up:find('HELLBOMB',1,true) or up:find('RESUPPLY',1,true)
+                local cat=up:match('^([A-Z%d%s%-_]+%.)') or ''
+                local personal=(cat=='VEHICLES.' or cat=='EAGLE.' or cat=='ORBITAL.'
+                                or cat=='SENTRYS.' or cat=='SENTRIES.' or cat=='EMPLACEMENTS.'
+                                or cat=='TEAM WEAPONS.' or cat=='TANK.')
+                if (not personal)
+                   and (up:find('HELLBOMB',1,true) or up:find('RESUPPLY',1,true)
                    or up:find('EXTRACTION',1,true) or up:find('TUTORIAL',1,true)
                    or up:find('SOS BEACON',1,true) or up:find('REINFORCEMENT',1,true)
-                   or up:find('SEAF',1,true) or up:find('RAISE FLAG',1,true) then
+                   or up:find('SEAF',1,true) or up:find('RAISE FLAG',1,true)) then
                     r.shared=true
                 end
             end
-            -- 4.8.5: squad-shared / objective stratagems are never touched. On a client our
-            -- write does not take effect there, yet the local countdown still moves, so nobody
-            -- can tell when the stratagem is really available (HELLBOMB id 31 and
-            -- CONSUMABLES. RESUPPLY id 33 were being changed as if they were support).
-            do
-                local up=string.upper(tostring(r.name or ''))
-                if up:find('HELLBOMB',1,true) or up:find('RESUPPLY',1,true)
-                   or up:find('EXTRACTION',1,true) or up:find('TUTORIAL',1,true)
-                   or up:find('SOS BEACON',1,true) or up:find('REINFORCEMENT',1,true)
-                   or up:find('SEAF',1,true) or up:find('RAISE FLAG',1,true) then
-                    r.shared=true
-                end
-            end
-            if r.shared and not cd.shared_logged then
-                cd.shared_logged=cd.shared_logged or {}
-                if not cd.shared_logged[id] then
+            if r.shared then
+                -- 4.9.26: the verdict is logged where it is known. Printing it here (before the role
+                -- gate below) called every shared record "host - writing our value" even on a client.
+                local ishost=(is_host()==true)
+                if not (cd.shared_logged and cd.shared_logged[id]) then
+                    cd.shared_logged=cd.shared_logged or {}
                     cd.shared_logged[id]=true
                     log(string.format('shared %d %s: %s', id, tostring(r.name),
-                        r.shared_client and 'client - leaving it alone' or 'host - writing our value'))
+                        ishost and 'host - writing our value' or 'client - leaving it alone'))
                 end
             end
             local inscope=in_scope(kind)
