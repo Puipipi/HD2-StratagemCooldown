@@ -5,6 +5,25 @@ Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
 
 ---
 
+## 4.9.27 — 2026-10-07
+
+**中文**
+* 修复：**切换百分比后，记录里若是"我们上一档的数值"仍会被放弃**。实测日志 `adopting host value for 88 … now=84 ours=42 vanilla=420`：84 = 420×20%（上一档），42 = 420×10%（当前）。这一档我们**没写过**（值已等于目标，写入被跳过），所以它没进 `cd.ours`，被判成外人的值 → 记录被放弃。现在**本局用过的每个百分比**都记下来，`原版 × 用过的百分比` 一律算我们的值（看门循环与写入前的"外来值"检查都加了这条）。
+* 顺带：额外战备槽的全部 19 个选项已逐条核对，除 4.9.26 修掉的那一条外没有别的误判；便携地狱火（`BACKPACK. HELLBOMB`）作为客机仍按规则跳过（它属于共享类，跟随主机）。
+
+**English**
+* Fix: **after changing the percentage, a record still holding the value of our previous setting was
+  given up.** Measured: `adopting host value for 88 … now=84 ours=42 vanilla=420` — 84 is 420*20% (the
+  previous setting), 42 is 420*10% (the current one). We had never written 84 (the field already equalled
+  the target, so the write was skipped), so it was not in `cd.ours` and looked like a third party's value.
+  Every percentage used this session is now remembered, and `vanilla * pct` counts as ours — in the
+  watch-loop decision and in the pre-write foreign-value check.
+* All 19 extra-slot choices were audited: apart from the one fixed in 4.9.26 there is no other
+  misclassification; the Portable Hellbomb (`BACKPACK. HELLBOMB`) is still skipped on a client by design
+  (it is squad-shared, so it follows the host).
+
+---
+
 ## 4.9.26 — 2026-10-07
 
 **中文**
