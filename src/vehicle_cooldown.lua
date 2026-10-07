@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.21',status='starting',errors=0}
+local M={version='4.9.22',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -2008,17 +2008,47 @@ local function is_host()
         return verdict, string.format('mine=%s host=%s peers=%d contains=%s detected=%s',
             mine_key, tostring(host_key), #all, tostring(contains), tostring(detected))
     end)
-    local verdict,note=(ok and res), nil
+    -- pcall hands back (verdict, note); keep both so a wrong answer explains itself
+    local verdict,note=nil,nil
     if ok then verdict=res end
-    -- the note comes back as the second pcall result
-    local ok2,verdict2,note2=pcall(function()
-        local GS=rawget(_G,'GameSession'); local Net=rawget(_G,'Network')
-        return nil
-    end)
+    do
+        local ok2,v2,n2=pcall(function()
+            local GS=rawget(_G,'GameSession')
+            local Net=rawget(_G,'Network')
+            if type(GS)~='table' or type(Net)~='table' then return false,'no api' end
+            if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return false,'no session field' end
+            if type(GS.peers)~='function' then return false,'no peers fn' end
+            local session=Net.game_session
+            if session==nil then return false,'no session' end
+            if type(GS.in_session)=='function' and GS.in_session(session)~=true then return false,'not in session' end
+            local peers=GS.peers(session)
+            local mine=Net.peer_id
+            if type(peers)~='table' or mine==nil then return false,'no peers' end
+            local host=(type(GS.game_session_host)=='function') and GS.game_session_host(session) or nil
+            local mine_key=tostring(mine)
+            local host_key=host~=nil and tostring(host) or nil
+            local all={}
+            for i=1,#peers do
+                local pr=peers[i]
+                if pr~=nil then all[#all+1]=tostring(pr) end
+            end
+            local contains=false
+            if host_key~=nil then
+                for i=1,#all do if all[i]==host_key then contains=true break end end
+            end
+            local detected=(host_key~=nil) and contains
+            local v=detected and (host_key==mine_key)
+            return v, string.format('mine=%s host=%s peers=%d contains=%s detected=%s',
+                mine_key, tostring(host_key), #all, tostring(contains), tostring(detected))
+        end)
+        if ok2 and type(v2)=='boolean' then verdict=v2 end
+        note=n2
+    end
     if type(verdict)~='boolean' then verdict=false end
     if not cd.role_logged then
         cd.role_logged=true
-        log('role: '..(verdict and 'host' or 'client')..' via p2p-style detection')
+        log(string.format('role: %s via p2p-style detection [%s]',
+            verdict and 'host' or 'client', tostring(note)))
     end
     host_role_cache=verdict
     return verdict
