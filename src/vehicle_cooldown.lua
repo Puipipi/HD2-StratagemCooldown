@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.23',status='starting',errors=0}
+local M={version='4.9.24',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1569,6 +1569,9 @@ local function cooldown_targets()
                         -- players disagreed. A client therefore writes nothing for shared stratagems:
                         -- the record keeps what the game/host gives (vanilla for a vanilla host,
                         -- which is consistent), while the host writes them normally.
+                        -- 4.9.24: the verdict comes from the p2p-style port above (stingray tables,
+                        -- functions actually called). It no longer degrades to 'client' when the
+                        -- engine cannot answer, so a host keeps its shared stratagems.
                         if is_host()==true then
                             r.host_shared=true
                         else
@@ -1966,92 +1969,188 @@ local function mom_rescan_safe()
     if type(mom_rescan)=='function' then pcall(mom_rescan) end
 end
 
--- 4.8.6: host or client? p2p_ping reads this from the engine
--- (GameSession.peers / Network.peer_id / GameSession.game_session_host) with existence
--- checks around every call; the same is done here. Shared/objective stratagems are written
--- only when we are certainly the host - on a client our write does not take effect while the
--- local countdown still moves, and an unreadable role is treated as a client.
+-- ============ 4.9.24 host or client? ported from P2P-Ping 0.1.34 ==================
+-- Authoritative source, read in full: work/lua3/P2P_Ping_0_1_34_mod_bindings_menu_hotkey__383738e5__0.lua
+-- (installed as mods/shock233/p2p_ping). The parts that matter:
+--
+--   line 44-46  local stingray = rawget(_G, "stingray")
+--               local Network     = stingray and rawget(stingray, "Network") or nil
+--               local GameSession = stingray and rawget(stingray, "GameSession") or nil
+--   line 54-67  callable(o,n) = type(o)=="table" and type(rawget(o,n))=="function"
+--               attempt(fn,...) = pcall(fn,...) - nil on failure, never an error
+--   line 85-117 scope(): needs callable Network.game_session, GameSession.peers, Network.peer_id;
+--               session = attempt(Network.game_session)        <- these are FUNCTIONS, they are called
+--               in_session(session)==true, but only when the engine exposes in_session at all
+--               peers = attempt(GameSession.peers, session); mine = attempt(Network.peer_id)
+--               host  = attempt(GameSession.game_session_host, session) or nil
+--               every peer/host/mine value is tostring()ed and compared as a string
+--   line 198-199 the verdict (update_peer_labels):
+--               host_detected = host ~= nil and contains(peers, host)
+--               local_is_host = host_detected and host == mine
+--
+-- 4.9.23 read rawget(_G,'Network') / rawget(_G,'GameSession'). Those globals do not exist - the
+-- tables hang off the stingray table - so every probe answered 'no api', the answer became false
+-- and a host was judged a client: every shared stratagem was skipped. P2PPing.log for the very
+-- same session (2026-10-07T02:32:13Z) shows the data was there all along:
+--   "start ... network_ping=true game_session=true peers=true session_host=true"
+--   "slot_tracker_initialized peers=1"   <- host, alone: exactly the case we called 'client'
+-- The same reading is used by HD2-Enemy-Reinforcement-HUD (local sr = rawget(_G,'stingray'),
+-- sr.Network / sr.GameSession, Network.game_session() and Network.peer_id() called).
+local function sr_tables()
+    local sr=rawget(_G,'stingray')
+    if type(sr)=='table' then
+        local net,gs=rawget(sr,'Network'),rawget(sr,'GameSession')
+        if type(net)=='table' or type(gs)=='table' then return net,gs,'stingray' end
+    end
+    -- tolerated second source for other loader builds; p2p_ping itself has no fallback here
+    return rawget(_G,'Network'),rawget(_G,'GameSession'),'_G'
+end
+
+local function api_callable(o,n)
+    return type(o)=='table' and type(rawget(o,n))=='function'
+end
+
+local function api_attempt(fn,...)
+    if fn==nil then return nil end
+    local ok,a=pcall(fn,...)
+    if ok then return a end
+    return nil
+end
+
+-- 'host' | 'client' | nil (the engine cannot answer right now), plus a note for the log
+local function role_probe()
+    local Network,GameSession,source=sr_tables()
+    if not (api_callable(Network,'game_session') and api_callable(GameSession,'peers')
+            and api_callable(Network,'peer_id')) then
+        return nil,string.format('api unavailable via %s (Network=%s GameSession=%s game_session=%s peers=%s peer_id=%s)',
+            tostring(source),tostring(type(Network)),tostring(type(GameSession)),
+            tostring(api_callable(Network,'game_session')),tostring(api_callable(GameSession,'peers')),
+            tostring(api_callable(Network,'peer_id')))
+    end
+    local session=api_attempt(Network.game_session)
+    if session==nil then return nil,'no session' end
+    if api_callable(GameSession,'in_session') and api_attempt(GameSession.in_session,session)~=true then
+        return nil,'not in session'
+    end
+    local peers=api_attempt(GameSession.peers,session)
+    local mine=api_attempt(Network.peer_id)
+    if type(peers)~='table' or mine==nil then
+        return nil,string.format('no peer list (peers=%s mine=%s)',tostring(type(peers)),tostring(mine))
+    end
+    local host=api_callable(GameSession,'game_session_host')
+        and api_attempt(GameSession.game_session_host,session) or nil
+    local mine_key=tostring(mine)
+    local host_key=(host~=nil) and tostring(host) or nil
+    local keys={}
+    local contains=false
+    for i=1,#peers do
+        local peer=peers[i]
+        if peer~=nil then
+            local key=tostring(peer)
+            keys[#keys+1]=key
+            if key==host_key then contains=true end
+        end
+    end
+    local evidence=string.format('mine=%s host=%s peers=%d [%s] via %s',
+        mine_key,tostring(host_key),#keys,table.concat(keys,','),tostring(source))
+    if not ((host_key~=nil) and contains) then
+        return nil,'host not among peers; '..evidence
+    end
+    return (host_key==mine_key) and 'host' or 'client',evidence
+end
+
+-- Outside a session the engine gives nothing - p2p_ping's HUD then says "Host unavailable"
+-- (line 461) instead of guessing. We must not turn that unknown into 'client': a host mistaken
+-- for a client silently loses every shared stratagem, which is the in-game failure of 4.9.23.
+-- So the last definite verdict is kept, and until one exists the role is host (the safe side
+-- for the one feature this gate exists to protect).
+cd.role=nil
+cd.role_note=nil
+cd.role_assumed=false
+cd.role_at=nil
+cd.role_logged=nil
+local ROLE_PERIOD=0.5          -- p2p_ping SCOPE_PERIOD (line 145)
+local function role_now()
+    local now=os.clock()
+    if cd.role_at and (now-cd.role_at)<ROLE_PERIOD then return cd.role end
+    cd.role_at=now
+    local role,note=role_probe()
+    if role~=nil then
+        cd.role=role
+        cd.role_assumed=false
+        cd.role_note=note
+        if cd.role_logged~=role then
+            cd.role_logged=role
+            log(string.format('role: %s via p2p-style detection [%s]',role,note))
+        end
+    elseif cd.role==nil then
+        cd.role='host'
+        cd.role_assumed=true
+        cd.role_note=note
+        if cd.role_logged~='host-assumed' then
+            cd.role_logged='host-assumed'
+            log(string.format('role: host (assumed while the engine cannot answer) via p2p-style detection [%s]',
+                tostring(note)))
+        end
+    else
+        if cd.role_note~=note then
+            cd.role_note=note
+            log(string.format('role: %s (kept) - probe says [%s]',cd.role,tostring(note)))
+        end
+    end
+    return cd.role
+end
 host_role_cache=nil
 function is_host()   -- assigns the forward-declared local (line ~132); a local here would shadow it
-    -- 4.9.21: p2p_ping's verdict, copied step for step (see its update_peer_labels):
-    --   host_detected = host ~= nil and contains(peers, host)
-    --   local_is_host = host_detected and host == mine
-    -- with the entries compared as tostring keys. No fallbacks of our own: if the data cannot be
-    -- read the answer is false, exactly as that mod behaves.
-    host_role_cache=nil
-    local ok,res=pcall(function()
-        local GS=rawget(_G,'GameSession')
-        local Net=rawget(_G,'Network')
-        if type(GS)~='table' or type(Net)~='table' then return false, 'no api' end
-        if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return false, 'no session field' end
-        if type(GS.peers)~='function' then return false, 'no peers fn' end
-        local session=Net.game_session
-        if session==nil then return false, 'no session' end
-        if type(GS.in_session)=='function' and GS.in_session(session)~=true then return false, 'not in session' end
-        local peers=GS.peers(session)
-        local mine=Net.peer_id
-        if type(peers)~='table' or mine==nil then return false, 'no peers' end
-        local host=(type(GS.game_session_host)=='function') and GS.game_session_host(session) or nil
-        local mine_key=tostring(mine)
-        local host_key=host~=nil and tostring(host) or nil
-        local all={}
-        for i=1,#peers do
-            local pr=peers[i]
-            if pr~=nil then all[#all+1]=tostring(pr) end
-        end
-        local contains=false
-        if host_key~=nil then
-            for i=1,#all do if all[i]==host_key then contains=true break end end
-        end
-        local detected=(host_key~=nil) and contains
-        local verdict=detected and (host_key==mine_key)
-        return verdict, string.format('mine=%s host=%s peers=%d contains=%s detected=%s',
-            mine_key, tostring(host_key), #all, tostring(contains), tostring(detected))
-    end)
-    -- pcall hands back (verdict, note); keep both so a wrong answer explains itself
-    local verdict,note=nil,nil
-    if ok then verdict=res end
-    do
-        local ok2,v2,n2=pcall(function()
-            local GS=rawget(_G,'GameSession')
-            local Net=rawget(_G,'Network')
-            if type(GS)~='table' or type(Net)~='table' then return false,'no api' end
-            if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return false,'no session field' end
-            if type(GS.peers)~='function' then return false,'no peers fn' end
-            local session=Net.game_session
-            if session==nil then return false,'no session' end
-            if type(GS.in_session)=='function' and GS.in_session(session)~=true then return false,'not in session' end
-            local peers=GS.peers(session)
-            local mine=Net.peer_id
-            if type(peers)~='table' or mine==nil then return false,'no peers' end
-            local host=(type(GS.game_session_host)=='function') and GS.game_session_host(session) or nil
-            local mine_key=tostring(mine)
-            local host_key=host~=nil and tostring(host) or nil
-            local all={}
-            for i=1,#peers do
-                local pr=peers[i]
-                if pr~=nil then all[#all+1]=tostring(pr) end
+    host_role_cache=(role_now()~='client')
+    return host_role_cache
+end
+
+-- Once we turn out to be a client, put the game's own value back on the records the host owns,
+-- so the local countdown shows what the host gives instead of our reduced number.
+local function role_revert_shared()
+    local n=0
+    for id,rec in pairs(cd.targets or {}) do
+        if rec.shared and rec.host_shared then
+            local cur=rec_info(id)
+            local raw=cur and read_at(cur.ptr,REC_READ)
+            if raw then
+                if rec.target_bits then
+                    local vb=(cd.vanilla and cd.vanilla[id] and cd.vanilla[id].bits) or rec.cooldown_bits
+                    for _,off in ipairs(rec.offs or {}) do
+                        if u32_at(raw,off+1)~=vb then pcall(write4,cur.ptr+off,vb) end
+                    end
+                end
+                if rec.uses_target and rec.uses_vanilla~=nil and i32_at(raw,OFF_USES+1)~=rec.uses_vanilla then
+                    pcall(write4,cur.ptr+OFF_USES,rec.uses_vanilla)
+                end
+                n=n+1
             end
-            local contains=false
-            if host_key~=nil then
-                for i=1,#all do if all[i]==host_key then contains=true break end end
-            end
-            local detected=(host_key~=nil) and contains
-            local v=detected and (host_key==mine_key)
-            return v, string.format('mine=%s host=%s peers=%d contains=%s detected=%s',
-                mine_key, tostring(host_key), #all, tostring(contains), tostring(detected))
-        end)
-        if ok2 and type(v2)=='boolean' then verdict=v2 end
-        note=n2
+        end
     end
-    if type(verdict)~='boolean' then verdict=false end
-    if not cd.role_logged then
-        cd.role_logged=true
-        log(string.format('role: %s via p2p-style detection [%s]',
-            verdict and 'host' or 'client', tostring(note)))
+    return n
+end
+
+-- Follow the verdict the way p2p_ping does (it re-scopes every 0.5 s) and act when it changes:
+-- a host->client switch restores vanilla on the host-owned records, a client->host switch makes
+-- them writable again. Either way the remembered target set is dropped, which re-decides every
+-- shared record in the next scan with the new role.
+local role_seen=nil
+local function role_tick()
+    local role=role_now()
+    if role_seen==nil then role_seen=role return end
+    if role~=role_seen then
+        role_seen=role
+        local reverted=0
+        if role~='client' then
+            -- nothing to undo when we become the host
+        else
+            reverted=role_revert_shared()
+        end
+        cd.state='observe'; cd.targets={}; cd.stable_since=nil; cd.written={}; cd.next_scan=nil
+        log(string.format('role changed to %s - re-scanning%s',role,
+            (role=='client') and string.format(' (restored the game value on %d shared record(s))',reverted) or ''))
     end
-    host_role_cache=verdict
-    return verdict
 end
 
 local function mom_register(host)
@@ -2236,6 +2335,11 @@ local function tick_cooldown()
     -- the manager blocks (red/blue/green/charges) are recorded by their own tiny
     -- addons; pick them up before any scope decision is made
     pcall(read_markers,up)
+    -- 4.9.24: keep the host/client verdict current (p2p_ping re-scopes every 0.5 s). This runs
+    -- before the uptime gate: entering or leaving a session must be noticed even while the
+    -- cooldown itself is still waiting.
+    local okr,errr=pcall(role_tick)
+    if not okr then note_error('role',errr) end
     if up<(cfg.uptime_s or 0) then
         local ph='uptime '..math.floor(up)..'s'
         if M.phase~=ph then M.phase=ph end
