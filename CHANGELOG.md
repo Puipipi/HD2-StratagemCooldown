@@ -8,20 +8,16 @@ Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
 ## 4.9.24 — 2026-10-07
 
 **中文**
-* 修复「主机被当成客机、共享战备（增援 / 补给 / 地狱火 / 撤离 …）完全不生效」。
-* 判定改为照 p2p 延迟显示模组的实现：引擎表挂在 `stingray` 上（不是 `_G`），且
-  `game_session()` / `peer_id()` 是**函数**，必须调用。
-* 判定每 0.5 秒重算；读不到时不再默认客机（保留上次结论，从未有过则按主机，日志标注 `assumed`）。
-* 主机 → 客机中途切换时，共享战备写回游戏原值，不再显示我们改小的数字。
+* 修复：**作为客机时，共享战备的冷却数字仍按我们改小的值走，没有跟主机一致**。判定不可靠（引擎表读错了位置，且把函数当值取用），客机没有进入「不写」分支；开主机时已写入的值也不会被撤销。
+* 判定改照 p2p 延迟显示模组：读 `stingray.Network` / `stingray.GameSession`，`game_session()` / `peer_id()` 按**函数调用**，每 0.5 秒重算。
+* 判定为客机时：不再写共享战备，并把先前写入的值**还原成游戏给的值**（实测日志：`role changed to client - re-scanning (restored the game value on 4 shared record(s))`）。非共享战备（你自己的红/蓝/绿）仍按设置生效。
+* 读不到时不再默认客机：保留上次结论，从未有过则按主机。
 
 **English**
-* Fixes "a host is judged a client, so squad-shared stratagems (reinforcement, resupply, hellbomb,
-  extraction …) do nothing at all".
-* Detection now follows the P2P Ping mod: the engine tables live on `stingray` (not `_G`), and
-  `game_session()` / `peer_id()` are **functions** and must be called.
-* Re-derived every 0.5 s; an unreadable engine no longer means "client" (the last verdict is kept,
-  host until one exists, logged as `assumed`).
-* On a host → client switch the shared records are written back to the game's own values.
+* Fixes: **as a client, squad-shared stratagems kept counting from our reduced value instead of matching the host**. The verdict was unreliable (the engine tables were read from the wrong place and the accessors were used as values), so a client never took the "do not write" branch, and values written while hosting were never undone.
+* The verdict now follows the P2P Ping mod: read `stingray.Network` / `stingray.GameSession`, **call** `game_session()` / `peer_id()`, re-derive every 0.5 s.
+* On a client verdict: shared stratagems are not written, and values written earlier are **restored to the game's own numbers** (measured in game: `role changed to client - re-scanning (restored the game value on 4 shared record(s))`). Non-shared stratagems (your own red/blue/green) still follow your settings.
+* An unreadable engine no longer means "client": the last verdict is kept, host until one exists.
 
 ---
 
