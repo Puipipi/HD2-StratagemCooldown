@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.20',status='starting',errors=0}
+local M={version='4.9.21',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1972,81 +1972,56 @@ end
 -- only when we are certainly the host - on a client our write does not take effect while the
 -- local countdown still moves, and an unreadable role is treated as a client.
 host_role_cache=nil
-function is_host()
-    if host_role_cache~=nil then return host_role_cache end
+local function is_host()
+    -- 4.9.21: p2p_ping's verdict, copied step for step (see its update_peer_labels):
+    --   host_detected = host ~= nil and contains(peers, host)
+    --   local_is_host = host_detected and host == mine
+    -- with the entries compared as tostring keys. No fallbacks of our own: if the data cannot be
+    -- read the answer is false, exactly as that mod behaves.
+    host_role_cache=nil
     local ok,res=pcall(function()
         local GS=rawget(_G,'GameSession')
         local Net=rawget(_G,'Network')
-        if type(GS)~='table' or type(Net)~='table' then return nil end
-        -- 4.9.13: same preconditions p2p_ping checks before it trusts the data
-        if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return nil end
-        if type(GS.peers)~='function' then return nil end
-        -- 4.9.13: the session comes from Network.game_session, exactly as p2p_ping reads it
-        local sess=Net.game_session
-        if sess==nil then return nil end
-        if type(GS.in_session)=='function' and GS.in_session(sess)~=true then return nil end
-        local peers=(type(GS.peers)=='function') and GS.peers(sess) or nil
+        if type(GS)~='table' or type(Net)~='table' then return false, 'no api' end
+        if type(Net.game_session)=='nil' or type(Net.peer_id)=='nil' then return false, 'no session field' end
+        if type(GS.peers)~='function' then return false, 'no peers fn' end
+        local session=Net.game_session
+        if session==nil then return false, 'no session' end
+        if type(GS.in_session)=='function' and GS.in_session(session)~=true then return false, 'not in session' end
+        local peers=GS.peers(session)
         local mine=Net.peer_id
-        local host=(type(GS.game_session_host)=='function') and GS.game_session_host(sess) or nil
-        if peers==nil or mine==nil then return nil end
-        -- 4.9.19: compare the host peer BY VALUE first (a string comparison alone can mismatch
-        -- when the ids are formatted differently, which is what made a host look like a client).
-        -- 4.9.20 (host first): a host usually has squadmates, so "no other peers" is not a host
-        -- signal in practice, and the API comparison can fail on differently formatted ids - which
-        -- would make a host look like a client and lose the shared reduction. So "client" needs
-        -- TWO independent confirmations: the game reports a host that is not us, AND the peers
-        -- list really contains that other peer. Anything weaker is treated as host.
-        local others=0
-        do
-            for i=1,#peers do
-                local pr=peers[i]
-                if pr~=nil and pr~=mine and tostring(pr)~=tostring(mine) then others=others+1 end
-            end
+        if type(peers)~='table' or mine==nil then return false, 'no peers' end
+        local host=(type(GS.game_session_host)=='function') and GS.game_session_host(session) or nil
+        local mine_key=tostring(mine)
+        local host_key=host~=nil and tostring(host) or nil
+        local all={}
+        for i=1,#peers do
+            local pr=peers[i]
+            if pr~=nil then all[#all+1]=tostring(pr) end
         end
-        if host~=nil then
-            local same=(host==mine) or (tostring(host)==tostring(mine))
-            if same then return true end
-            local host_present=false
-            for i=1,#peers do
-                local pr=peers[i]
-                if pr~=nil and (pr==host or tostring(pr)==tostring(host)) then host_present=true break end
-            end
-            if host_present and others>=1 then
-                if not cd.role_client_logged then
-                    cd.role_client_logged=true
-                    log('role: the game reports another peer as host and it is in the peers list - client mode')
-                end
-                return false
-            end
-            return true
+        local contains=false
+        if host_key~=nil then
+            for i=1,#all do if all[i]==host_key then contains=true break end end
         end
-        if others==0 then return true end
+        local detected=(host_key~=nil) and contains
+        local verdict=detected and (host_key==mine_key)
+        return verdict, string.format('mine=%s host=%s peers=%d contains=%s detected=%s',
+            mine_key, tostring(host_key), #all, tostring(contains), tostring(detected))
+    end)
+    local verdict,note=(ok and res), nil
+    if ok then verdict=res end
+    -- the note comes back as the second pcall result
+    local ok2,verdict2,note2=pcall(function()
+        local GS=rawget(_G,'GameSession'); local Net=rawget(_G,'Network')
         return nil
     end)
-    local r=(ok and res) or nil
-    -- 4.9.13: host_mode.txt may force the role; an undecidable probe means host, and the yield
-    -- cap keeps a client honest (a host-owned value is rewritten at most twice, then yielded).
-    do
-        local f=io.open(HOME..'VehicleCooldown/host_mode.txt','rb')
-        if f then
-            local text=f:read('*a')
-            f:close()
-            if type(text)=='string' then
-                local t=text:lower()
-                if t:find('client',1,true) then r=false
-                elseif t:find('host',1,true) then r=true end
-            end
-        end
+    if type(verdict)~='boolean' then verdict=false end
+    if not cd.role_logged then
+        cd.role_logged=true
+        log('role: '..(verdict and 'host' or 'client')..' via p2p-style detection')
     end
-    if r==nil then
-        if not cd.host_unknown_logged then
-            cd.host_unknown_logged=true
-            log('role undecided (p2p probe empty) - assuming host; a host-owned value wins by yielding')
-        end
-        r=true
-    end
-    host_role_cache=r
-    return r
+    host_role_cache=verdict
+    return verdict
 end
 
 local function mom_register(host)
