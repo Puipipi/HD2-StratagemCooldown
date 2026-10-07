@@ -5,6 +5,26 @@ Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
 
 ---
 
+## 4.9.25 — 2026-10-07
+
+**中文**
+* 修复：**在游戏内改动百分比之后，还带着我们上一档数值的战备会被误判成「别的模组的值」而永久放弃**。日志实测：那一局开局是 10%（`780->78`），02:51:14 你把页面改成 60%，从 02:51:20 起每 5 秒放弃一个记录，共 **31 个**（FRV、机甲、轨道精准/激光/凝固汽油/380、迫击炮与机枪哨戒、特斯拉、补给背包…），整局都不再被修改 —— 看起来就像「模组失效」。
+* 现在判定会先问「这个值是不是我们自己写过的」（`cd.ours`），是则重写而不是放弃；每次改动设置也会重新考虑曾被放弃的记录（日志 `settings changed: reconsidering N record(s)`），放弃日志会打印 `now= / ours= / vanilla=`。
+* 别的模组真正占用的记录（例如补给模组的 77）仍会被放弃，这条规则不变。
+
+**English**
+* Fix: **after changing the percentage on the in-game page, every record that still carried our previous
+  value was mistaken for "another addon's value" and given up for good**. Measured: the session started at
+  10% (`780->78`), the page was changed to 60% at 02:51:14, and from 02:51:20 one record was dropped every
+  5 s — **31 of them** (FRV, walkers, orbitals, sentries, Tesla, supply backpack …) for the rest of the
+  session, which looks exactly like "the mod stopped working".
+* The decision now first asks whether the value is one we wrote ourselves (`cd.ours`); if so it is rewritten
+  instead of given up. A settings change also reconsiders records that were given up on
+  (`settings changed: reconsidering N record(s)`), and the give-up log prints `now= / ours= / vanilla=`.
+* Records genuinely owned by another addon (e.g. the supply mod's 77) are still given up — unchanged.
+
+---
+
 ## 4.9.24 — 2026-10-07
 
 **中文**
