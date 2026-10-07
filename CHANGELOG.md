@@ -5,6 +5,23 @@ Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
 
 ---
 
+## 4.9.26 — 2026-10-07
+
+**中文**
+* 修复：**额外战备槽带来的「M-103 补给小车」不生效**。额外战备槽模组里它写作 `type=26`，对应表内记录 26 = `VEHICLES. FAST RECON VEHICLE (RESUPPLY AUTO TURRET)`（原版 480 秒 ≈ 8 分）。旧代码在名字里搜到 `RESUPPLY` 就当成小队补给 → 客机时整条跳过。现在**载具 / 飞鹰 / 轨道 / 哨戒 / 固定炮台 / 团队武器 / 坦克**这些「自己的」类别不再参与共享判定。
+* 顺手删掉重复了一份的共享判定，并修正共享日志的时机：以前在角色判定之前打印，客机也会写成 `host - writing our value`，现在按真实身份打印。
+
+**English**
+* Fix: **the extra-slot stratagem ("M-103 Supply FRV") was never reduced.** The extra-slot mod names it
+  `type=26`, which is table record 26 = `VEHICLES. FAST RECON VEHICLE (RESUPPLY AUTO TURRET)` (480 s ≈ 8 min).
+  The old test found `RESUPPLY` in the name and treated it as the squad's resupply, so a client skipped it
+  entirely. Personal families (VEHICLES / EAGLE / ORBITAL / SENTRYS / EMPLACEMENTS / TEAM WEAPONS / TANK) no
+  longer take part in that test.
+* The duplicated copy of the shared test is gone, and the `shared …` log line now prints the real role — it
+  used to be written before the role gate, so a client was logged as `host - writing our value`.
+
+---
+
 ## 4.9.25 — 2026-10-07
 
 **中文**
