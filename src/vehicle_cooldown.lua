@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.22',status='starting',errors=0}
+local M={version='4.9.23',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -1972,7 +1972,7 @@ end
 -- only when we are certainly the host - on a client our write does not take effect while the
 -- local countdown still moves, and an unreadable role is treated as a client.
 host_role_cache=nil
-local function is_host()
+function is_host()   -- assigns the forward-declared local (line ~132); a local here would shadow it
     -- 4.9.21: p2p_ping's verdict, copied step for step (see its update_peer_labels):
     --   host_detected = host ~= nil and contains(peers, host)
     --   local_is_host = host_detected and host == mine
