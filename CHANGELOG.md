@@ -1,5 +1,61 @@
 # 变更记录 / Changelog
 
+4.9.24 起中英双语；更早的条目保留原文（中文）。
+Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
+
+---
+
+## 4.9.24 — 2026-10-07
+
+**中文**
+* 修复「主机被当成客机、共享战备（增援 / 补给 / 地狱火 / 撤离 …）完全不生效」。
+* 判定改为照 p2p 延迟显示模组的实现：引擎表挂在 `stingray` 上（不是 `_G`），且
+  `game_session()` / `peer_id()` 是**函数**，必须调用。
+* 判定每 0.5 秒重算；读不到时不再默认客机（保留上次结论，从未有过则按主机，日志标注 `assumed`）。
+* 主机 → 客机中途切换时，共享战备写回游戏原值，不再显示我们改小的数字。
+
+**English**
+* Fixes "a host is judged a client, so squad-shared stratagems (reinforcement, resupply, hellbomb,
+  extraction …) do nothing at all".
+* Detection now follows the P2P Ping mod: the engine tables live on `stingray` (not `_G`), and
+  `game_session()` / `peer_id()` are **functions** and must be called.
+* Re-derived every 0.5 s; an unreadable engine no longer means "client" (the last verdict is kept,
+  host until one exists, logged as `assumed`).
+* On a host → client switch the shared records are written back to the game's own values.
+
+---
+
+## 4.9.19 — 2026-10-06
+
+**中文**：客机不再写共享战备 —— 实测主机的数值不会传到客机，自己写只会让两边数字不一致。  
+**English**: Clients no longer write squad-shared stratagems — the host's value never reaches a client,
+so writing only made the two players disagree.
+
+## 4.9.14 / 4.9.10 — 2026-10-06
+
+**中文**：呼叫落地时间、飞鹰同时呼叫两项实验下线（实测 `0x34` 只影响面板显示、`0x64` 只对载具/驱逐舰有效），设置页不再留没有效果的选项。  
+**English**: The call-in landing-time and Eagle simultaneous-call experiments were retired (`0x34` only
+changes the panel display, `0x64` only applies to vehicle/destroyer call-ins), so the options page keeps
+no option that does nothing.
+
+## 4.9.1 — 2026-10-06
+
+**中文**：安全闸 —— 记录表的 id+hash 锚点不通过就什么都不写（此前误解析到错误的表会导致 `0xC0000005` 崩溃）。  
+**English**: Fail-safe — nothing is written unless the table's id+hash anchors pass (a mis-resolved table
+used to crash the game with `0xC0000005`).
+
+## 4.0 – 4.8 摘要 / Highlights
+
+**中文**：冷却百分比为滑块（10–100，任意整数）；「最低优先级」让出规则（别的模组正在改的记录我们放弃）；
+次数的镜像写入因进任务崩溃而移除，改为每次写入回读校验；游戏内设置页改为纯英文；共享/任务类战备只由主机修改。  
+**English**: cooldown percentage as a slider (10–100, any integer); the lowest-priority yield rule (a record
+another addon is editing is given up); the mirrored charge writes removed after a mission-entry crash, every
+write read-back verified; English-only options page; squad-shared/objective stratagems modified on the host only.
+
+---
+
+## 更早（原文，中文）/ Earlier (as written, Chinese)
+
 ## 2.4.13
 * 游戏内设置页接入 **Mod Options Menu** 框架（`_G.ModOptionsMenu`，api 1）：注册 7 项 —— 启用、
   冷却保留(80%/50%)、红战备(关闭/轨道+飞鹰/只轨道/只飞鹰)、蓝战备(载具/机甲/两者/全部/关闭)、
