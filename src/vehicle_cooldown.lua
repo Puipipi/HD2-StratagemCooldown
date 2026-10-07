@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.26',status='starting',errors=0}
+local M={version='4.9.27',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -723,8 +723,27 @@ end
 -- v2 mod called the same option Default50). percent=0 falls back to the fixed
 -- cooldown_s. A percentage never lengthens a stratagem unless it is above 100.
 -- The floor is 1s, not 30s: Eagle entries legitimately sit at 15s.
+-- 4.9.27: every percentage this session has derived targets from. A record can hold vanilla * pct
+-- without us ever having written it there: if the value already equals our target the write pass
+-- skips it (`bits~=desired`), so it never lands in cd.ours - and after the next change of setting
+-- that value looks foreign. Measured in game: `now=84 ours=42 vanilla=420` (84 = 420*20%, the
+-- setting before the slider moved to 10%) was adopted and the record given up.
+local used_percents={}
+local function note_percent(p)
+    p=tonumber(p)
+    if p and p>0 and p<=100 then used_percents[p]=true end
+end
+local function is_our_cooldown(vanilla,cv)
+    if not vanilla or not cv then return false end
+    for p in pairs(used_percents) do
+        if math.abs(cv-vanilla*p/100)<0.05 then return true end
+    end
+    return false
+end
+
 local function target_bits_for(orig)
     local pct=tonumber(cfg.percent) or 50
+    note_percent(pct)
     local want=orig*pct/100
     if pct<=100 and want>orig then want=orig end
     if want<1 then want=1 elseif want>7200 then want=7200 end
@@ -1744,6 +1763,7 @@ local function cooldown_write(cfg)
             if seen and ((cur_co and seen.co and math.abs(cur_co-seen.co)>0.01)
                       or (cur_us and seen.uses and cur_us~=seen.uses))
                and not (cur_co and (cd.ours[id] or {})[f32_bits(cur_co)])
+               and not (cur_co and is_our_cooldown(rec.vanilla,cur_co))
                and not (cur_us and (cd.ours_uses[id] or {})[cur_us])
                and not (cur_co and rec.vanilla and math.abs(cur_co-rec.vanilla)<0.01)
                and not (cur_us and cur_us==rec.uses_vanilla) then
@@ -1758,7 +1778,8 @@ local function cooldown_write(cfg)
                 local vb=f32_bits(rec.vanilla)
                 for _,off in ipairs(rec.offs or {}) do
                     local b=u32_at(raw,off+1)
-                    if b~=desired and b~=vb and not mine[b] then
+                    if b~=desired and b~=vb and not mine[b]
+                       and not is_our_cooldown(rec.vanilla,f32_from_bits(b)) then
                         foreign=string.format('cooldown is %s',tostring(f32_from_bits(b)))
                     end
                 end
@@ -2483,6 +2504,9 @@ local function tick_cooldown()
                         -- (FRV, walkers, orbitals, sentries, supply backpack ...) were lost in one session
                         -- and never reduced again - which looked exactly like "the mod stopped working".
                         local mine=(cv~=nil) and ((cd.ours[id] or {})[f32_bits(cv)]==true) or false
+                        -- 4.9.27: a value of ours that we never had to write (it was already equal
+                        -- to the target of an earlier percentage) is ours as well - see used_percents
+                        if (not mine) and is_our_cooldown(rec.vanilla,cv) then mine=true end
                         if cv and tv and rec.vanilla then
                             if math.abs(cv-tv)<0.05 then
                                 adopt=false                     -- already ours
