@@ -132,7 +132,7 @@ end
 local is_host, host_role_cache
 local apply_arrival_scale
 local WATCH_LINES=0
-local M={version='4.9.27',status='starting',errors=0}
+local M={version='4.9.28',status='starting',errors=0}
 -- BAKED is injected by work/standalone/build_vc.py when a manager option was
 -- chosen. It only supplies DEFAULTS: any key the player leaves uncommented in
 -- config.txt still wins, so the manager preset and the file can be combined.
@@ -203,7 +203,7 @@ local function note_error(where,err)
 end
 
 local function conf()
-    local d={cooldown=true,percent=80,min_cooldown=60,uses_add=0,uses_unlimited=false,
+    local d={cooldown=true,percent=80,min_cooldown=45,uses_add=0,uses_unlimited=false,
              stable_s=1,uptime_s=0,probe=false,
              red=false,orbital=false,eagle=false,
              blue=true,blue_scope='vehicles',
@@ -220,7 +220,7 @@ local function conf()
             local w=io.open(CFG,'w')
             if w then
                 w:write('; 把不想改的行用 ; 或 # 注释掉 / comment out what you do not want\n')
-                w:write('cooldown=yes\npercent=80\nmin_cooldown=60\n')
+                w:write('cooldown=yes\npercent=80\nmin_cooldown=45\n')
                 w:write('; red: off | yes (orbital+eagle) | orbital | eagle ; orbital= / eagle= refine it\n')
                 w:write('red=no\n')
                 w:write('; blue: off | vehicles | mechs | both | all\n')
@@ -1570,14 +1570,17 @@ local function cooldown_targets()
                     -- the 6s reload - rescaling those changes how fast the strike
                     -- arrives, which is not what this addon promises. The real
                     -- Eagle cycle is EAGLE. REARM (150s), which is above the bar.
-                    local mincd=tonumber(cfg.min_cooldown) or 60
-                    if r.vanilla<mincd then
+                    -- 4.9.28: "<= 45 s" is the timing-field zone (requested after the 60 s bar turned out
+                    -- to protect more than it needed to). At or below 45 s the value is a drop/reload
+                    -- delay, above it a real cooldown.
+                    local mincd=tonumber(cfg.min_cooldown) or 45
+                    if r.vanilla<=mincd then
                         r.target_bits,r.target=nil,nil
                         cd.low_logged=cd.low_logged or {}
                         if not cd.low_logged[id] then
                             cd.low_logged[id]=true
                             log(string.format(
-                                'id=%d %s cooldown %s < min_cooldown %s - left alone (timing field)',
+                                'id=%d %s cooldown %s <= min_cooldown %s - left alone (timing field)',
                                 id,tostring(r.name),tostring(r.vanilla),tostring(mincd)))
                         end
                     else
@@ -1916,7 +1919,7 @@ local MOM_OPTS={
      note='Any percentage goes in config.txt as percent=65.',
      apply=function(v)
          local n=mom_pct(v)
-         if n then cfg.percent=n cfg.min_cooldown=(cfg.min_cooldown or 60) end
+         if n then cfg.percent=n cfg.min_cooldown=(cfg.min_cooldown or 45) end
      end},
     {key='red', kind='choice', label='Red stratagems',
      choices={'关闭 / Off','飞鹰 / Eagle','轨道 / Orbital','全部 / All'},
@@ -2640,7 +2643,7 @@ return M
 --   %LOCALAPPDATA%\CowboyBingus\Helldivers2\VehicleCooldown\config.txt
 --     cooldown=yes          总开关 / master switch
 --     percent=80            冷却保留百分比：任意数值（10-100），例如 65
---     min_cooldown=60       低于该秒数的不改（保护飞鹰 15 秒投放、坦克 6 秒装填）
+--     min_cooldown=45       不高于该秒数的不改（保护飞鹰 15 秒投放、坦克 6 秒装填）
 --     red=no                off | yes（轨道+飞鹰）| both | orbital | eagle
 --     orbital=no            orbital= / eagle= 写在 red= 之后可细分到某一系
 --     eagle=no
