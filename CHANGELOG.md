@@ -5,6 +5,22 @@ Bilingual from 4.9.24; earlier entries are kept as written (Chinese).
 
 ---
 
+## 4.9.28 — 2026-10-07
+
+**中文**
+* **时间字段保护阈值 60 秒 → 45 秒**（`min_cooldown`）。不高于 45 秒的一律不动（飞鹰 15 秒投放、坦克 6 秒装填这类"时间字段"），高于 45 秒的照旧按你的百分比缩短；正好 45 秒也归入不动。
+* 四处同步更新：默认值、首次运行生成的 `config.txt`、日志行（现在打印 `cooldown 45 <= min_cooldown 45`）、游戏内说明。若你在 `config.txt` 里**没注释**过 `min_cooldown`，仍以文件里的值为准（显式键优先）。
+
+**English**
+* **The timing-field guard is 45 s now (was 60 s)** (`min_cooldown`). At or below 45 s nothing is touched
+  (Eagle's 15 s drop, the tank's 6 s reload and other timing fields); above it the cooldown is shortened as
+  before, and exactly 45 s counts as protected.
+* Updated in all four places that carried the old number: the default, the `config.txt` written on first
+  run, the log line (now `cooldown 45 <= min_cooldown 45`) and the in-game guide. An uncommented
+  `min_cooldown` in `config.txt` still wins.
+
+---
+
 ## 4.9.27 — 2026-10-07
 
 **中文**
